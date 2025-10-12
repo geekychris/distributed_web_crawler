@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crawler
+  namespace: crawler
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: crawler
+  template:
+    metadata:
+      labels:
+        app: crawler
+    spec:
+      containers:
+      - name: crawler
+        image: distributed-crawler:latest
+        env:
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: "kafka-0.kafka.crawler.svc.cluster.local:9092,kafka-1.kafka.crawler.svc.cluster.local:9092,kafka-2.kafka.crawler.svc.cluster.local:9092"
+        - name: KAFKA_GROUP_ID
+          value: "crawler-group-1"
+        - name: CASSANDRA_CONTACT_POINTS
+          value: "cassandra-0.cassandra.crawler.svc.cluster.local:9042,cassandra-1.cassandra.crawler.svc.cluster.local:9042,cassandra-2.cassandra.crawler.svc.cluster.local:9042"
+        - name: CASSANDRA_LOCAL_DATACENTER
+          value: "datacenter1"
+        - name: CASSANDRA_KEYSPACE
+          value: "crawler"
+        - name: S3_ENDPOINT
+          value: "http://minio.crawler.svc.cluster.local:9000"
+        - name: S3_BUCKET
+          value: "crawler-bucket"
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: minio-credentials
+              key: accesskey
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: minio-credentials
+              key: secretkey
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: crawler-config
+  namespace: crawler
+data:
+  config.json: |
+    {
+      "maxDepth": 5,
+      "crawlDelay": "PT1S",
+      "maxConcurrentRequests": 10,
+      "allowedDomains": [
+        "example\\.com$",
+        "blog\\.example\\.com$"
+      ],
+      "excludePatterns": [
+        "/private/.*",
+        "/admin/.*"
+      ],
+      "seedUrls": [
+        "https://example.com/",
+        "https://blog.example.com/"
+      ],
+      "respectRobotsTxt": true,
+      "userAgent": "DistributedCrawler/1.0"
+    }
