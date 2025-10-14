@@ -11,6 +11,21 @@ spec:
   selector:
     app: kafka
 ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-nodeport
+  namespace: crawler
+spec:
+  type: NodePort
+  ports:
+  - port: 9092
+    targetPort: 9092
+    nodePort: 30092
+    name: kafka
+  selector:
+    app: kafka
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -18,7 +33,7 @@ metadata:
   namespace: crawler
 spec:
   serviceName: kafka
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: kafka
@@ -34,30 +49,50 @@ spec:
         - containerPort: 9092
         env:
         - name: KAFKA_BROKER_ID
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
+          value: "1"
         - name: KAFKA_ZOOKEEPER_CONNECT
           value: "zookeeper:2181"
         - name: KAFKA_ADVERTISED_LISTENERS
-          value: "PLAINTEXT://$(POD_NAME).kafka.crawler.svc.cluster.local:9092"
+          value: "PLAINTEXT://kafka-0.kafka.crawler.svc.cluster.local:9092"
         - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
           value: "PLAINTEXT:PLAINTEXT"
+        - name: KAFKA_LISTENERS
+          value: "PLAINTEXT://0.0.0.0:9092"
         - name: KAFKA_INTER_BROKER_LISTENER_NAME
           value: "PLAINTEXT"
-        - name: POD_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
+        - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+          value: "1"
+        - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
+          value: "true"
+        - name: KAFKA_LOG_RETENTION_HOURS
+          value: "168"
+        - name: KAFKA_LOG_RETENTION_BYTES
+          value: "1073741824"
+        - name: KAFKA_NUM_PARTITIONS
+          value: "3"
+        - name: KAFKA_DEFAULT_REPLICATION_FACTOR
+          value: "1"
+        livenessProbe:
+          tcpSocket:
+            port: 9092
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 9092
+          initialDelaySeconds: 20
+          periodSeconds: 5
         volumeMounts:
         - name: data
           mountPath: /var/lib/kafka/data
   volumeClaimTemplates:
   - metadata:
       name: data
+      labels:
+        app: kafka
     spec:
       accessModes: [ "ReadWriteOnce" ]
-      storageClassName: standard
+      storageClassName: local-standard
       resources:
         requests:
           storage: 10Gi

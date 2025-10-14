@@ -1,0 +1,73 @@
+spring:
+  application:
+    name: distributed-crawler
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+
+# OpenAPI/Swagger configuration
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+    operations-sorter: method
+    tags-sorter: alpha
+    display-request-duration: true
+  info:
+    title: "Distributed Web Crawler API"
+    description: "REST API for managing the distributed web crawler service"
+    version: "1.0.0"
+    contact:
+      name: "Web Crawler Team"
+      url: "https://github.com/your-org/distributed-crawler"
+      email: "crawler-team@example.com"
+
+crawler:
+  max-depth: 5
+  crawl-delay: PT1S
+  max-concurrent-requests: 10
+  allowed-domains:
+    - "example\\.com$"
+    - "blog\\.example\\.com$"
+    - "httpbin\\.org$"
+  exclude-patterns:
+    - "/private/.*"
+    - "/admin/.*"
+  seed-urls:
+    - "https://example.com/"
+    - "https://blog.example.com/"
+  respect-robots-txt: true
+  user-agent: "DistributedCrawler/1.0"
+
+kafka:
+  bootstrap-servers: localhost:9092
+  group-id: crawler-group-1
+  topic: crawler-urls
+
+cassandra:
+  contact-points: localhost:30042
+  local-datacenter: datacenter1
+  keyspace: crawler
+
+s3:
+  endpoint: http://localhost:9000
+  bucket: crawler-bucket
+  access-key-id: minioadmin
+  secret-access-key: minioadmin
+
+logging:
+  level:
+    com.webcrawler: INFO
+    org.apache.kafka: WARN
+    com.datastax: WARN

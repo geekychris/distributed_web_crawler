@@ -15,6 +15,21 @@ spec:
   selector:
     app: zookeeper
 ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zookeeper-nodeport
+  namespace: crawler
+spec:
+  type: NodePort
+  ports:
+  - port: 2181
+    targetPort: 2181
+    nodePort: 32181
+    name: client
+  selector:
+    app: zookeeper
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -22,7 +37,7 @@ metadata:
   namespace: crawler
 spec:
   serviceName: zookeeper
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: zookeeper
@@ -42,6 +57,8 @@ spec:
         - containerPort: 3888
           name: leader-election
         env:
+        - name: ZOOKEEPER_SERVER_ID
+          value: "1"
         - name: ZOOKEEPER_CLIENT_PORT
           value: "2181"
         - name: ZOOKEEPER_TICK_TIME
@@ -50,8 +67,25 @@ spec:
           value: "10"
         - name: ZOOKEEPER_SYNC_LIMIT
           value: "5"
-        - name: ZOOKEEPER_SERVERS
-          value: "zookeeper-0.zookeeper.crawler.svc.cluster.local:2888:3888;zookeeper-1.zookeeper.crawler.svc.cluster.local:2888:3888;zookeeper-2.zookeeper.crawler.svc.cluster.local:2888:3888"
+        - name: ZOOKEEPER_MAX_CLIENT_CNXNS
+          value: "60"
+        - name: ZOOKEEPER_AUTOPURGE_SNAP_RETAIN_COUNT
+          value: "3"
+        - name: ZOOKEEPER_AUTOPURGE_PURGE_INTERVAL
+          value: "24"
+        livenessProbe:
+          tcpSocket:
+            port: 2181
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - /bin/bash
+            - -c
+            - "echo ruok | nc localhost 2181 | grep imok"
+          initialDelaySeconds: 15
+          periodSeconds: 5
         volumeMounts:
         - name: data
           mountPath: /var/lib/zookeeper/data
@@ -60,7 +94,7 @@ spec:
       name: data
     spec:
       accessModes: [ "ReadWriteOnce" ]
-      storageClassName: standard
+      storageClassName: local-standard
       resources:
         requests:
           storage: 5Gi

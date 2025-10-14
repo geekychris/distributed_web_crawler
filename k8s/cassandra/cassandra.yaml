@@ -12,6 +12,23 @@ spec:
   selector:
     app: cassandra
 ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cassandra-nodeport
+  namespace: crawler
+  labels:
+    app: cassandra
+spec:
+  type: NodePort
+  ports:
+  - port: 9042
+    targetPort: 9042
+    nodePort: 30042
+    name: cql
+  selector:
+    app: cassandra
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -19,7 +36,7 @@ metadata:
   namespace: crawler
 spec:
   serviceName: cassandra
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: cassandra
@@ -53,26 +70,29 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: status.podIP
+        readinessProbe:
+          exec:
+            command:
+            - /bin/bash
+            - -c
+            - "cqlsh -e 'describe keyspaces'"
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+        livenessProbe:
+          tcpSocket:
+            port: 9042
+          initialDelaySeconds: 60
+          periodSeconds: 30
         volumeMounts:
         - name: data
           mountPath: /var/lib/cassandra
-      initContainers:
-      - name: init-schema
-        image: cassandra:4.1.3
-        command: ['sh', '-c', 'until cqlsh cassandra-0.cassandra.crawler.svc.cluster.local 9042 -f /init/schema.cql; do echo waiting for cassandra; sleep 2; done']
-        volumeMounts:
-        - name: schema
-          mountPath: /init
-      volumes:
-      - name: schema
-        configMap:
-          name: cassandra-schema
   volumeClaimTemplates:
   - metadata:
       name: data
     spec:
       accessModes: [ "ReadWriteOnce" ]
-      storageClassName: standard
+      storageClassName: local-standard
       resources:
         requests:
           storage: 20Gi

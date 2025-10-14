@@ -1,6 +1,9 @@
 package com.webcrawler.queue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.webcrawler.config.KafkaProperties;
 import com.webcrawler.model.CrawlRequest;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
@@ -9,25 +12,32 @@ import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
+@Component
 public class KafkaUrlQueue implements UrlQueue {
-    private static final String TOPIC_NAME = "crawler-urls";
     private final KafkaProducer<String, String> producer;
     private final KafkaConsumer<String, String> consumer;
     private final ObjectMapper objectMapper;
+    private final String topicName;
     private final String groupId;
 
-    public KafkaUrlQueue(String bootstrapServers, String groupId) {
-        this.groupId = groupId;
-        this.objectMapper = new ObjectMapper();
-        this.producer = createProducer(bootstrapServers);
-        this.consumer = createConsumer(bootstrapServers);
-        this.consumer.subscribe(Set.of(TOPIC_NAME));
+    @Autowired
+    public KafkaUrlQueue(KafkaProperties kafkaProperties) {
+        this.groupId = kafkaProperties.groupId();
+        this.topicName = kafkaProperties.topic();
+        this.objectMapper = new ObjectMapper()
+            .registerModule(new JavaTimeModule())
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        this.producer = createProducer(kafkaProperties.bootstrapServers());
+        this.consumer = createConsumer(kafkaProperties.bootstrapServers());
+        this.consumer.subscribe(Set.of(topicName));
     }
 
     @Override
@@ -35,7 +45,7 @@ public class KafkaUrlQueue implements UrlQueue {
         try {
             String json = objectMapper.writeValueAsString(request);
             return CompletableFuture.supplyAsync(() -> 
-                producer.send(new ProducerRecord<>(TOPIC_NAME, request.url(), json)))
+                producer.send(new ProducerRecord<>(topicName, request.url(), json)))
                 .thenAccept(result -> {});
         } catch (Exception e) {
             return CompletableFuture.failedFuture(e);
@@ -45,15 +55,17 @@ public class KafkaUrlQueue implements UrlQueue {
     @Override
     public CompletableFuture<CrawlRequest> dequeue() {
         return CompletableFuture.supplyAsync(() -> {
-            var records = consumer.poll(Duration.ofSeconds(1));
-            if (records.isEmpty()) {
-                return null;
-            }
-            var record = records.iterator().next();
-            try {
-                return objectMapper.readValue(record.value(), CrawlRequest.class);
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to deserialize CrawlRequest", e);
+            synchronized (consumer) {
+                var records = consumer.poll(Duration.ofSeconds(1));
+                if (records.isEmpty()) {
+                    return null;
+                }
+                var record = records.iterator().next();
+                try {
+                    return objectMapper.readValue(record.value(), CrawlRequest.class);
+                } catch (Exception e) {
+                    throw new RuntimeException("Failed to deserialize CrawlRequest", e);
+                }
             }
         });
     }
@@ -81,6 +93,8 @@ public class KafkaUrlQueue implements UrlQueue {
     @Override
     public void close() {
         producer.close();
-        consumer.close();
+        synchronized (consumer) {
+            consumer.close();
+        }
     }
 }

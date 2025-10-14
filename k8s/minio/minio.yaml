@@ -12,6 +12,25 @@ spec:
   selector:
     app: minio
 ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio-nodeport
+  namespace: crawler
+spec:
+  type: NodePort
+  ports:
+  - port: 9000
+    targetPort: 9000
+    nodePort: 30000
+    name: api
+  - port: 9001
+    targetPort: 9001
+    nodePort: 30001
+    name: console
+  selector:
+    app: minio
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -80,7 +99,7 @@ spec:
       name: data
     spec:
       accessModes: [ "ReadWriteOnce" ]
-      storageClassName: standard
+      storageClassName: local-standard
       resources:
         requests:
           storage: 50Gi

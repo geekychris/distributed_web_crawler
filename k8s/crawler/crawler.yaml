@@ -4,7 +4,7 @@ metadata:
   name: crawler
   namespace: crawler
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: crawler
@@ -16,13 +16,14 @@ spec:
       containers:
       - name: crawler
         image: distributed-crawler:latest
+        imagePullPolicy: Never
         env:
         - name: KAFKA_BOOTSTRAP_SERVERS
-          value: "kafka-0.kafka.crawler.svc.cluster.local:9092,kafka-1.kafka.crawler.svc.cluster.local:9092,kafka-2.kafka.crawler.svc.cluster.local:9092"
+          value: "kafka-0.kafka.crawler.svc.cluster.local:9092"
         - name: KAFKA_GROUP_ID
           value: "crawler-group-1"
         - name: CASSANDRA_CONTACT_POINTS
-          value: "cassandra-0.cassandra.crawler.svc.cluster.local:9042,cassandra-1.cassandra.crawler.svc.cluster.local:9042,cassandra-2.cassandra.crawler.svc.cluster.local:9042"
+          value: "cassandra-0.cassandra.crawler.svc.cluster.local:9042"
         - name: CASSANDRA_LOCAL_DATACENTER
           value: "datacenter1"
         - name: CASSANDRA_KEYSPACE
@@ -43,11 +44,11 @@ spec:
               key: secretkey
         resources:
           requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
             memory: "512Mi"
             cpu: "500m"
-          limits:
-            memory: "1Gi"
-            cpu: "1000m"
 ---
 apiVersion: v1
 kind: ConfigMap
