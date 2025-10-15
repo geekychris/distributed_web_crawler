@@ -46,13 +46,15 @@ crawler:
     - "/admin/.*"
   seed-urls:
     - "https://example.com/"
-    - "https://blog.example.com/"
+    - "https://httpbin.org/html"
   respect-robots-txt: true
   user-agent: "DistributedCrawler/1.0"
+  max-retry-attempts: 3
+  enable-delay-retry: true
 
 kafka:
   bootstrap-servers: localhost:9092
-  group-id: crawler-group-1
+  group-id: crawler-group-2
   topic: crawler-urls
 
 cassandra:

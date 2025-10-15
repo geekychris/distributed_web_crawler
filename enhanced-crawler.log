@@ -1,0 +1,135 @@
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by org.fusesource.jansi.internal.JansiLoader in an unnamed module (file:/opt/homebrew/Cellar/maven/3.9.9/libexec/lib/jansi-2.4.1.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::objectFieldOffset has been called by com.google.common.util.concurrent.AbstractFuture$UnsafeAtomicHelper (file:/opt/homebrew/Cellar/maven/3.9.9/libexec/lib/guava-33.2.1-jre.jar)
+WARNING: Please consider reporting this to the maintainers of class com.google.common.util.concurrent.AbstractFuture$UnsafeAtomicHelper
+WARNING: sun.misc.Unsafe::objectFieldOffset will be removed in a future release
+[INFO] Scanning for projects...
+[INFO] 
+[INFO] -----------------< com.webcrawler:distributed-crawler >-----------------
+[INFO] Building distributed-crawler 1.0-SNAPSHOT
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] >>> spring-boot:3.2.2:run (default-cli) > test-compile @ distributed-crawler >>>
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ distributed-crawler ---
+[INFO] Copying 2 resources from src/main/resources to target/classes
+[INFO] Copying 0 resource from src/main/resources to target/classes
+[INFO] 
+[INFO] --- compiler:3.11.0:compile (default-compile) @ distributed-crawler ---
+[INFO] Nothing to compile - all classes are up to date
+[INFO] 
+[INFO] --- resources:3.3.1:testResources (default-testResources) @ distributed-crawler ---
+[INFO] skip non existing resourceDirectory /Users/chris/code/warp_experiments/crawler/distributed-crawler/src/test/resources
+[INFO] 
+[INFO] --- compiler:3.11.0:testCompile (default-testCompile) @ distributed-crawler ---
+[INFO] Changes detected - recompiling the module! :source
+[INFO] Compiling 1 source file with javac [debug release 21] to target/test-classes
+[INFO] 
+[INFO] <<< spring-boot:3.2.2:run (default-cli) < test-compile @ distributed-crawler <<<
+[INFO] 
+[INFO] 
+[INFO] --- spring-boot:3.2.2:run (default-cli) @ distributed-crawler ---
+[INFO] Attaching agents: []
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+[32m :: Spring Boot :: [39m              [2m (v3.2.2)[0;39m
+
+[2m2025-10-13T11:27:02.251-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mc.w.DistributedCrawlerApplication       [0;39m [2m:[0;39m Starting DistributedCrawlerApplication using Java 24.0.2 with PID 4161 (/Users/chris/code/warp_experiments/crawler/distributed-crawler/target/classes started by chris in /Users/chris/code/warp_experiments/crawler/distributed-crawler)
+[2m2025-10-13T11:27:02.252-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mc.w.DistributedCrawlerApplication       [0;39m [2m:[0;39m No active profile set, falling back to 1 default profile: "default"
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::objectFieldOffset has been called by com.datastax.oss.driver.shaded.guava.common.util.concurrent.AbstractFuture$UnsafeAtomicHelper (file:/Users/chris/.m2/repository/com/datastax/oss/java-driver-shaded-guava/25.1-jre-graal-sub-1/java-driver-shaded-guava-25.1-jre-graal-sub-1.jar)
+WARNING: Please consider reporting this to the maintainers of class com.datastax.oss.driver.shaded.guava.common.util.concurrent.AbstractFuture$UnsafeAtomicHelper
+WARNING: sun.misc.Unsafe::objectFieldOffset will be removed in a future release
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by com.kenai.jffi.internal.StubLoader in an unnamed module (file:/Users/chris/.m2/repository/com/github/jnr/jffi/1.3.9/jffi-1.3.9.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+[2m2025-10-13T11:27:03.061-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Initializing WebCrawler service...
+[2m2025-10-13T11:27:03.137-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mc.w.DistributedCrawlerApplication       [0;39m [2m:[0;39m Started DistributedCrawlerApplication in 0.992 seconds (process running for 1.081)
+[2m2025-10-13T11:27:03.137-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mc.webcrawler.startup.CrawlerAutostart   [0;39m [2m:[0;39m 🚀 Auto-starting web crawler...
+[2m2025-10-13T11:27:03.137-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Starting WebCrawler...
+[2m2025-10-13T11:27:03.137-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Seeding URL queue with 4 URLs
+[2m2025-10-13T11:27:03.138-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Adding seed URL to queue: http://httpbin.org/links/5
+[2m2025-10-13T11:27:03.157-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Successfully enqueued seed URL: http://httpbin.org/links/5
+[2m2025-10-13T11:27:03.158-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Adding seed URL to queue: https://httpbin.org/html
+[2m2025-10-13T11:27:03.158-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Successfully enqueued seed URL: https://httpbin.org/html
+[2m2025-10-13T11:27:03.158-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Adding seed URL to queue: https://example.com
+[2m2025-10-13T11:27:03.158-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Successfully enqueued seed URL: https://example.com
+[2m2025-10-13T11:27:03.158-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Adding seed URL to queue: https://bbc.co.uk
+[2m2025-10-13T11:27:03.158-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Successfully enqueued seed URL: https://bbc.co.uk
+[2m2025-10-13T11:27:03.158-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Finished seeding URL queue
+[2m2025-10-13T11:27:03.159-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-1][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Starting crawl loop thread: pool-5-thread-1
+[2m2025-10-13T11:27:03.159-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-2][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Starting crawl loop thread: pool-5-thread-2
+[2m2025-10-13T11:27:03.159-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-4][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Starting crawl loop thread: pool-5-thread-4
+[2m2025-10-13T11:27:03.159-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-3][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Starting crawl loop thread: pool-5-thread-3
+[2m2025-10-13T11:27:03.159-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mc.webcrawler.startup.CrawlerAutostart   [0;39m [2m:[0;39m ✅ Web crawler started successfully!
+[2m2025-10-13T11:27:03.159-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-5][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Starting crawl loop thread: pool-5-thread-5
+[2m2025-10-13T11:27:06.205-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-3][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Processing URL: https://www.cnn.com/science/unearthed (depth: 2)
+[2m2025-10-13T11:27:06.206-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-3][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Validating URL: https://www.cnn.com/science/unearthed (domain: www.cnn.com)
+[2m2025-10-13T11:27:06.206-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-3][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✓ Depth check passed (2/3): https://www.cnn.com/science/unearthed
+[2m2025-10-13T11:27:06.207-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-3][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✓ No domain restrictions configured: https://www.cnn.com/science/unearthed
+[2m2025-10-13T11:27:06.207-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-3][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✓ Exclude pattern check passed: https://www.cnn.com/science/unearthed
+[2m2025-10-13T11:27:06.207-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-3][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✓ Crawl delay check passed: https://www.cnn.com/science/unearthed
+[2m2025-10-13T11:27:06.207-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-3][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✓ Robots.txt checking disabled: https://www.cnn.com/science/unearthed
+[2m2025-10-13T11:27:06.207-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-3][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✅ All validation checks passed for: https://www.cnn.com/science/unearthed
+[2m2025-10-13T11:27:06.207-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-3][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m URL passed validation, starting crawl: https://www.cnn.com/science/unearthed
+[2m2025-10-13T11:27:06.207-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-4][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Processing URL: https://www.cnn.com/markets/fear-and-greed (depth: 1)
+[2m2025-10-13T11:27:06.207-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-4][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Validating URL: https://www.cnn.com/markets/fear-and-greed (domain: www.cnn.com)
+[2m2025-10-13T11:27:06.207-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-4][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✓ Depth check passed (1/3): https://www.cnn.com/markets/fear-and-greed
+[2m2025-10-13T11:27:06.207-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-4][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✓ No domain restrictions configured: https://www.cnn.com/markets/fear-and-greed
+[2m2025-10-13T11:27:06.208-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-4][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✓ Exclude pattern check passed: https://www.cnn.com/markets/fear-and-greed
+[2m2025-10-13T11:27:06.208-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-4][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✓ Crawl delay check passed: https://www.cnn.com/markets/fear-and-greed
+[2m2025-10-13T11:27:06.208-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-4][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✓ Robots.txt checking disabled: https://www.cnn.com/markets/fear-and-greed
+[2m2025-10-13T11:27:06.208-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-4][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✅ All validation checks passed for: https://www.cnn.com/markets/fear-and-greed
+[2m2025-10-13T11:27:06.208-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-4][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m URL passed validation, starting crawl: https://www.cnn.com/markets/fear-and-greed
+[2m2025-10-13T11:35:33.313-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-2][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Processing URL: https://httpbin.org/html (depth: 0)
+[2m2025-10-13T11:35:33.313-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-2][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Validating URL: https://httpbin.org/html (domain: httpbin.org)
+[2m2025-10-13T11:35:33.313-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-2][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✓ Depth check passed (0/3): https://httpbin.org/html
+[2m2025-10-13T11:35:33.313-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-2][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✓ No domain restrictions configured: https://httpbin.org/html
+[2m2025-10-13T11:35:33.313-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-2][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✓ Exclude pattern check passed: https://httpbin.org/html
+[2m2025-10-13T11:35:33.313-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-2][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✓ Crawl delay check passed: https://httpbin.org/html
+[2m2025-10-13T11:35:33.313-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-2][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✓ Robots.txt checking disabled: https://httpbin.org/html
+[2m2025-10-13T11:35:33.313-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-2][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✅ All validation checks passed for: https://httpbin.org/html
+[2m2025-10-13T11:35:33.313-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-2][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m URL passed validation, starting crawl: https://httpbin.org/html
+[2m2025-10-13T11:35:33.314-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-1][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Processing URL: http://httpbin.org/links/5 (depth: 0)
+[2m2025-10-13T11:35:33.314-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-1][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Validating URL: http://httpbin.org/links/5 (domain: httpbin.org)
+[2m2025-10-13T11:35:33.314-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-1][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✓ Depth check passed (0/3): http://httpbin.org/links/5
+[2m2025-10-13T11:35:33.314-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-1][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✓ No domain restrictions configured: http://httpbin.org/links/5
+[2m2025-10-13T11:35:33.314-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-1][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✓ Exclude pattern check passed: http://httpbin.org/links/5
+[2m2025-10-13T11:35:33.314-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-1][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✓ Crawl delay check passed: http://httpbin.org/links/5
+[2m2025-10-13T11:35:33.314-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-1][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✓ Robots.txt checking disabled: http://httpbin.org/links/5
+[2m2025-10-13T11:35:33.314-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-1][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✅ All validation checks passed for: http://httpbin.org/links/5
+[2m2025-10-13T11:35:33.314-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-1][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m URL passed validation, starting crawl: http://httpbin.org/links/5
+[2m2025-10-13T11:38:46.093-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-5][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Processing URL: https://httpbin.org/html (depth: 0)
+[2m2025-10-13T11:38:46.093-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-5][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Validating URL: https://httpbin.org/html (domain: httpbin.org)
+[2m2025-10-13T11:38:46.093-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-5][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✓ Depth check passed (0/3): https://httpbin.org/html
+[2m2025-10-13T11:38:46.094-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-5][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✓ No domain restrictions configured: https://httpbin.org/html
+[2m2025-10-13T11:38:46.094-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-5][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✓ Exclude pattern check passed: https://httpbin.org/html
+[2m2025-10-13T11:38:46.094-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-5][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✓ Crawl delay check passed: https://httpbin.org/html
+[2m2025-10-13T11:38:46.094-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-5][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✓ Robots.txt checking disabled: https://httpbin.org/html
+[2m2025-10-13T11:38:46.094-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-5][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✅ All validation checks passed for: https://httpbin.org/html
+[2m2025-10-13T11:38:46.094-07:00[0;39m [32m INFO[0;39m [35m4161[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-5][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m URL passed validation, starting crawl: https://httpbin.org/html
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD FAILURE
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  14:45 min
+[INFO] Finished at: 2025-10-13T11:41:46-07:00
+[INFO] ------------------------------------------------------------------------
+[ERROR] Failed to execute goal org.springframework.boot:spring-boot-maven-plugin:3.2.2:run (default-cli) on project distributed-crawler: Process terminated with exit code: 137 -> [Help 1]
+[ERROR] 
+[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
+[ERROR] Re-run Maven using the -X switch to enable full debug logging.
+[ERROR] 
+[ERROR] For more information about the errors and possible solutions, please read the following articles:
+[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoExecutionException

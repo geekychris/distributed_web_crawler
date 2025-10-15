@@ -18,7 +18,9 @@ public record CrawlerProperties(
     @DefaultValue List<String> excludePatterns,
     @DefaultValue List<String> seedUrls,
     @DefaultValue("true") boolean respectRobotsTxt,
-    @DefaultValue("DistributedCrawler/1.0") String userAgent
+    @DefaultValue("DistributedCrawler/1.0") String userAgent,
+    @DefaultValue("3") int maxRetryAttempts,
+    @DefaultValue("true") boolean enableDelayRetry
 ) {
     public Set<Pattern> getAllowedDomainPatterns() {
         return allowedDomains != null ? 

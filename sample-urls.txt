@@ -1,0 +1,10 @@
+# Sample URLs for web crawler testing
+# One URL per line, comments start with #
+
+https://httpbin.org/html
+https://httpbin.org/json
+https://httpbin.org/xml
+https://httpbin.org/robots.txt
+https://httpbin.org/links/5/0
+https://example.com
+https://www.iana.org/domains/reserved-domains

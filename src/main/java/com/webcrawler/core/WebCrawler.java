@@ -29,6 +29,7 @@ public class WebCrawler {
     private final UrlQueue urlQueue;
     private final StorageService storageService;
     private final ExecutorService executorService;
+    private final ScheduledExecutorService retryScheduler;
     private final Map<String, Instant> lastCrawled;
     private final Map<String, RobotsTxtRules> robotsCache;
     private volatile boolean isRunning;
@@ -39,6 +40,7 @@ public class WebCrawler {
         this.urlQueue = urlQueue;
         this.storageService = storageService;
         this.executorService = Executors.newFixedThreadPool(config.maxConcurrentRequests());
+        this.retryScheduler = Executors.newScheduledThreadPool(2);  // Small pool for scheduling retries
         this.lastCrawled = new ConcurrentHashMap<>();
         this.robotsCache = new ConcurrentHashMap<>();
         this.isRunning = false;
@@ -110,14 +112,31 @@ public class WebCrawler {
                         continue;
                     }
 
-                    logger.info("Processing URL: {} (depth: {})", request.url(), request.depth());
-                    if (shouldCrawl(request)) {
-                        logger.info("URL passed validation, starting crawl: {}", request.url());
-                        //crawlUrl(request).join();
-                        crawlUrlAux(request);
-                        logger.info("Successfully crawled URL: {}", request.url());
-                    } else {
-                        logger.info("URL rejected by validation: {}", request.url());
+                    logger.info("Processing URL: {} (depth: {}, retry: {})", request.url(), request.depth(), request.retryCount());
+                    
+                    // Check if request is scheduled for the future
+                    if (!request.isReadyToProcess()) {
+                        logger.debug("Request not ready yet, re-queuing: {} (scheduled for: {})", 
+                            request.url(), request.scheduledFor());
+                        urlQueue.enqueue(request);
+                        continue;
+                    }
+                    
+                    CrawlDecision decision = shouldCrawl(request);
+                    switch (decision.action()) {
+                        case CRAWL -> {
+                            logger.info("URL passed validation, starting crawl: {}", request.url());
+                            crawlUrlAux(request);
+                            logger.info("Successfully crawled URL: {}", request.url());
+                        }
+                        case RETRY_LATER -> {
+                            logger.info("Scheduling URL for retry: {} (reason: {}, retry #{}, scheduled for: {})", 
+                                request.url(), decision.reason(), request.retryCount() + 1, decision.retryAt());
+                            scheduleRetry(request, decision.retryAt());
+                        }
+                        case REJECT -> {
+                            logger.info("URL rejected: {} (reason: {})", request.url(), decision.reason());
+                        }
                     }
                 }
             } catch (Exception e) {
@@ -127,7 +146,7 @@ public class WebCrawler {
         logger.info("Crawl loop thread exiting: {}", Thread.currentThread().getName());
     }
 
-    private boolean shouldCrawl(CrawlRequest request) {
+    private CrawlDecision shouldCrawl(CrawlRequest request) {
         try {
             URL url = new URL(request.url());
             String domain = url.getHost();
@@ -137,9 +156,15 @@ public class WebCrawler {
             // Check depth
             if (request.depth() > config.maxDepth()) {
                 logger.info("URL rejected - depth {} exceeds max depth {}: {}", request.depth(), config.maxDepth(), request.url());
-                return false;
+                return CrawlDecision.reject("depth " + request.depth() + " exceeds max depth " + config.maxDepth());
             }
             logger.info("✓ Depth check passed ({}/{}): {}", request.depth(), config.maxDepth(), request.url());
+
+            // Check retry limits
+            if (request.retryCount() > config.maxRetryAttempts()) {
+                logger.info("URL rejected - exceeded max retry attempts {}: {}", config.maxRetryAttempts(), request.url());
+                return CrawlDecision.reject("exceeded max retry attempts " + config.maxRetryAttempts());
+            }
 
             // Check allowed domains
             var allowedDomains = config.getAllowedDomainPatterns();
@@ -148,7 +173,7 @@ public class WebCrawler {
                 if (!domainMatches) {
                     logger.info("URL rejected - domain '{}' doesn't match allowed patterns: {}", domain, 
                         allowedDomains.stream().map(p -> p.pattern()).collect(java.util.stream.Collectors.toList()));
-                    return false;
+                    return CrawlDecision.reject("domain doesn't match allowed patterns");
                 }
                 logger.info("✓ Domain check passed - '{}' matches allowed patterns: {}", domain, request.url());
             } else {
@@ -160,16 +185,26 @@ public class WebCrawler {
             boolean isExcluded = excludePatterns.stream().anyMatch(p -> p.matcher(request.url()).matches());
             if (isExcluded) {
                 logger.info("URL rejected - matches exclude pattern: {}", request.url());
-                return false;
+                return CrawlDecision.reject("matches exclude pattern");
             }
             logger.info("✓ Exclude pattern check passed: {}", request.url());
 
-            // Check crawl delay
+            // Check crawl delay - this is where we implement retry logic
             Instant lastVisit = lastCrawled.get(domain);
-            if (lastVisit != null && 
-                Duration.between(lastVisit, Instant.now()).compareTo(config.crawlDelay()) < 0) {
-                logger.info("URL rejected - crawl delay not satisfied for domain '{}': {}", domain, request.url());
-                return false;
+            if (lastVisit != null) {
+                Duration timeSinceLastVisit = Duration.between(lastVisit, Instant.now());
+                if (timeSinceLastVisit.compareTo(config.crawlDelay()) < 0) {
+                    if (config.enableDelayRetry()) {
+                        Duration remainingDelay = config.crawlDelay().minus(timeSinceLastVisit);
+                        Instant retryAt = Instant.now().plus(remainingDelay);
+                        logger.info("URL scheduled for retry due to crawl delay - domain '{}': {} (retry in {}ms)", 
+                            domain, request.url(), remainingDelay.toMillis());
+                        return CrawlDecision.retryLater("crawl delay not satisfied for domain " + domain, retryAt);
+                    } else {
+                        logger.info("URL rejected - crawl delay not satisfied for domain '{}': {}", domain, request.url());
+                        return CrawlDecision.reject("crawl delay not satisfied for domain " + domain);
+                    }
+                }
             }
             logger.info("✓ Crawl delay check passed: {}", request.url());
 
@@ -179,7 +214,7 @@ public class WebCrawler {
                 RobotsTxtRules rules = getRobotsRules(url);
                 if (!rules.isAllowed(request.url())) {
                     logger.info("URL rejected - robots.txt disallows: {}", request.url());
-                    return false;
+                    return CrawlDecision.reject("robots.txt disallows");
                 }
                 logger.info("✓ Robots.txt check passed: {}", request.url());
             } else {
@@ -187,10 +222,42 @@ public class WebCrawler {
             }
 
             logger.info("✅ All validation checks passed for: {}", request.url());
-            return true;
+            return CrawlDecision.crawl();
         } catch (Exception e) {
             logger.error("Error checking if URL should be crawled: {}", request.url(), e);
-            return false;
+            return CrawlDecision.reject("validation error: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Schedule a URL for retry after a specified delay.
+     */
+    private void scheduleRetry(CrawlRequest originalRequest, Instant retryAt) {
+        CrawlRequest retryRequest = originalRequest.withRetry(
+            originalRequest.retryCount() + 1,
+            retryAt
+        );
+        
+        Duration delay = Duration.between(Instant.now(), retryAt);
+        if (delay.isNegative()) {
+            // If the retry time is in the past, enqueue immediately
+            logger.debug("Retry time is in the past, enqueueing immediately: {}", originalRequest.url());
+            urlQueue.enqueue(retryRequest);
+        } else {
+            // Schedule for future execution
+            retryScheduler.schedule(
+                () -> {
+                    try {
+                        logger.info("🔄 Retry time reached, re-queueing URL: {} (attempt #{})", 
+                            retryRequest.url(), retryRequest.retryCount());
+                        urlQueue.enqueue(retryRequest).join();
+                    } catch (Exception e) {
+                        logger.error("Failed to re-queue URL for retry: {}", retryRequest.url(), e);
+                    }
+                },
+                delay.toMillis(),
+                TimeUnit.MILLISECONDS
+            );
         }
     }
 
@@ -361,6 +428,8 @@ public class WebCrawler {
     public void destroy() {
         logger.info("Destroying WebCrawler service...");
         stop();
+        
+        // Shutdown main executor
         executorService.shutdown();
         try {
             if (!executorService.awaitTermination(30, TimeUnit.SECONDS)) {
@@ -368,6 +437,17 @@ public class WebCrawler {
             }
         } catch (InterruptedException e) {
             executorService.shutdownNow();
+        }
+        
+        // Shutdown retry scheduler
+        retryScheduler.shutdown();
+        try {
+            if (!retryScheduler.awaitTermination(10, TimeUnit.SECONDS)) {
+                retryScheduler.shutdownNow();
+                logger.warn("Retry scheduler did not shut down gracefully, forcing shutdown");
+            }
+        } catch (InterruptedException e) {
+            retryScheduler.shutdownNow();
         }
     }
 

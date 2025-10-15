@@ -1,0 +1,95 @@
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by org.fusesource.jansi.internal.JansiLoader in an unnamed module (file:/opt/homebrew/Cellar/maven/3.9.9/libexec/lib/jansi-2.4.1.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::objectFieldOffset has been called by com.google.common.util.concurrent.AbstractFuture$UnsafeAtomicHelper (file:/opt/homebrew/Cellar/maven/3.9.9/libexec/lib/guava-33.2.1-jre.jar)
+WARNING: Please consider reporting this to the maintainers of class com.google.common.util.concurrent.AbstractFuture$UnsafeAtomicHelper
+WARNING: sun.misc.Unsafe::objectFieldOffset will be removed in a future release
+[INFO] Scanning for projects...
+[INFO] 
+[INFO] -----------------< com.webcrawler:distributed-crawler >-----------------
+[INFO] Building distributed-crawler 1.0-SNAPSHOT
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] >>> spring-boot:3.2.2:run (default-cli) > test-compile @ distributed-crawler >>>
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ distributed-crawler ---
+[INFO] Copying 2 resources from src/main/resources to target/classes
+[INFO] Copying 0 resource from src/main/resources to target/classes
+[INFO] 
+[INFO] --- compiler:3.11.0:compile (default-compile) @ distributed-crawler ---
+[INFO] Nothing to compile - all classes are up to date
+[INFO] 
+[INFO] --- resources:3.3.1:testResources (default-testResources) @ distributed-crawler ---
+[INFO] skip non existing resourceDirectory /Users/chris/code/warp_experiments/crawler/distributed-crawler/src/test/resources
+[INFO] 
+[INFO] --- compiler:3.11.0:testCompile (default-testCompile) @ distributed-crawler ---
+[INFO] Changes detected - recompiling the module! :source
+[INFO] Compiling 1 source file with javac [debug release 21] to target/test-classes
+[INFO] 
+[INFO] <<< spring-boot:3.2.2:run (default-cli) < test-compile @ distributed-crawler <<<
+[INFO] 
+[INFO] 
+[INFO] --- spring-boot:3.2.2:run (default-cli) @ distributed-crawler ---
+[INFO] Attaching agents: []
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+[32m :: Spring Boot :: [39m              [2m (v3.2.2)[0;39m
+
+[2m2025-10-13T11:52:14.950-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mc.w.DistributedCrawlerApplication       [0;39m [2m:[0;39m Starting DistributedCrawlerApplication using Java 24.0.2 with PID 11011 (/Users/chris/code/warp_experiments/crawler/distributed-crawler/target/classes started by chris in /Users/chris/code/warp_experiments/crawler/distributed-crawler)
+[2m2025-10-13T11:52:14.951-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mc.w.DistributedCrawlerApplication       [0;39m [2m:[0;39m No active profile set, falling back to 1 default profile: "default"
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by org.apache.tomcat.jni.Library in an unnamed module (file:/Users/chris/.m2/repository/org/apache/tomcat/embed/tomcat-embed-core/10.1.18/tomcat-embed-core-10.1.18.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+[2m2025-10-13T11:52:16.721-07:00[0;39m [33m WARN[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36moshi.util.platform.mac.SysctlUtil       [0;39m [2m:[0;39m Failed sysctl call: hw.cpufrequency, Error code: 2
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::objectFieldOffset has been called by com.datastax.oss.driver.shaded.guava.common.util.concurrent.AbstractFuture$UnsafeAtomicHelper (file:/Users/chris/.m2/repository/com/datastax/oss/java-driver-shaded-guava/25.1-jre-graal-sub-1/java-driver-shaded-guava-25.1-jre-graal-sub-1.jar)
+WARNING: Please consider reporting this to the maintainers of class com.datastax.oss.driver.shaded.guava.common.util.concurrent.AbstractFuture$UnsafeAtomicHelper
+WARNING: sun.misc.Unsafe::objectFieldOffset will be removed in a future release
+[2m2025-10-13T11:52:17.439-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Initializing WebCrawler service...
+[2m2025-10-13T11:52:17.609-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mc.w.DistributedCrawlerApplication       [0;39m [2m:[0;39m Started DistributedCrawlerApplication in 2.788 seconds (process running for 2.891)
+[2m2025-10-13T11:52:17.611-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mc.webcrawler.startup.CrawlerAutostart   [0;39m [2m:[0;39m 🚀 Auto-starting web crawler...
+[2m2025-10-13T11:52:17.611-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Starting WebCrawler...
+[2m2025-10-13T11:52:17.611-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Seeding URL queue with 4 URLs
+[2m2025-10-13T11:52:17.611-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Adding seed URL to queue: https://example.com
+[2m2025-10-13T11:52:17.635-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Successfully enqueued seed URL: https://example.com
+[2m2025-10-13T11:52:17.635-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Adding seed URL to queue: https://httpbin.org/html
+[2m2025-10-13T11:52:17.636-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Successfully enqueued seed URL: https://httpbin.org/html
+[2m2025-10-13T11:52:17.636-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Adding seed URL to queue: http://httpbin.org/links/5
+[2m2025-10-13T11:52:17.636-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Successfully enqueued seed URL: http://httpbin.org/links/5
+[2m2025-10-13T11:52:17.636-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Adding seed URL to queue: https://bbc.co.uk
+[2m2025-10-13T11:52:17.636-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Successfully enqueued seed URL: https://bbc.co.uk
+[2m2025-10-13T11:52:17.637-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Finished seeding URL queue
+[2m2025-10-13T11:52:17.638-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-2][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Starting crawl loop thread: pool-5-thread-2
+[2m2025-10-13T11:52:17.638-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-3][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Starting crawl loop thread: pool-5-thread-3
+[2m2025-10-13T11:52:17.638-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-4][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Starting crawl loop thread: pool-5-thread-4
+[2m2025-10-13T11:52:17.638-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-1][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Starting crawl loop thread: pool-5-thread-1
+[2m2025-10-13T11:52:17.638-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [           main][0;39m [2m[0;39m[36mc.webcrawler.startup.CrawlerAutostart   [0;39m [2m:[0;39m ✅ Web crawler started successfully!
+[2m2025-10-13T11:52:17.638-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-5][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Starting crawl loop thread: pool-5-thread-5
+[2m2025-10-13T11:52:18.637-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-2][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Processing URL: https://example.com (depth: 0)
+[2m2025-10-13T11:52:18.639-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-2][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Validating URL: https://example.com (domain: example.com)
+[2m2025-10-13T11:52:18.639-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-2][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✓ Depth check passed (0/3): https://example.com
+[2m2025-10-13T11:52:18.639-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-2][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✓ No domain restrictions configured: https://example.com
+[2m2025-10-13T11:52:18.639-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-2][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✓ Exclude pattern check passed: https://example.com
+[2m2025-10-13T11:52:18.639-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-2][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✓ Crawl delay check passed: https://example.com
+[2m2025-10-13T11:52:18.639-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-2][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✓ Robots.txt checking disabled: https://example.com
+[2m2025-10-13T11:52:18.639-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-2][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m ✅ All validation checks passed for: https://example.com
+[2m2025-10-13T11:52:18.639-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-2][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m URL passed validation, starting crawl: https://example.com
+[2m2025-10-13T11:53:31.962-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [ionShutdownHook][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Destroying WebCrawler service...
+[2m2025-10-13T11:53:31.962-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [ionShutdownHook][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Stopping WebCrawler...
+[2m2025-10-13T11:53:32.722-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-3][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Crawl loop thread exiting: pool-5-thread-3
+[2m2025-10-13T11:53:33.234-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-2][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Successfully crawled URL: https://example.com
+[2m2025-10-13T11:53:33.235-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-2][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Crawl loop thread exiting: pool-5-thread-2
+[2m2025-10-13T11:53:33.725-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-5][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Crawl loop thread exiting: pool-5-thread-5
+[2m2025-10-13T11:53:34.722-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-1][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Crawl loop thread exiting: pool-5-thread-1
+[2m2025-10-13T11:53:35.726-07:00[0;39m [32m INFO[0;39m [35m11011[0;39m [2m---[0;39m [2m[distributed-crawler] [pool-5-thread-4][0;39m [2m[0;39m[36mcom.webcrawler.core.WebCrawler          [0;39m [2m:[0;39m Crawl loop thread exiting: pool-5-thread-4
