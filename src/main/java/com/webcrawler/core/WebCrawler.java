@@ -97,20 +97,28 @@ public class WebCrawler {
         while (isRunning) {
             try {
                 logger.debug("Attempting to dequeue URL...");
-                CrawlRequest request = urlQueue.dequeue().join();
-                if (request == null) {
+                List<CrawlRequest> requests = urlQueue.dequeue().join();
+                if (requests == null) {
                     logger.debug("No URL found in queue, sleeping...");
                     Thread.sleep(1000);
                     continue;
                 }
+                for (CrawlRequest request : requests) {
+                    if (request == null) {
+                        logger.debug("No URL found in queue, sleeping...");
+                        Thread.sleep(1000);
+                        continue;
+                    }
 
-                logger.info("Processing URL: {} (depth: {})", request.url(), request.depth());
-                if (shouldCrawl(request)) {
-                    logger.info("URL passed validation, starting crawl: {}", request.url());
-                    crawlUrl(request).join();
-                    logger.info("Successfully crawled URL: {}", request.url());
-                } else {
-                    logger.info("URL rejected by validation: {}", request.url());
+                    logger.info("Processing URL: {} (depth: {})", request.url(), request.depth());
+                    if (shouldCrawl(request)) {
+                        logger.info("URL passed validation, starting crawl: {}", request.url());
+                        //crawlUrl(request).join();
+                        crawlUrlAux(request);
+                        logger.info("Successfully crawled URL: {}", request.url());
+                    } else {
+                        logger.info("URL rejected by validation: {}", request.url());
+                    }
                 }
             } catch (Exception e) {
                 logger.error("Error in crawl loop", e);
@@ -188,127 +196,132 @@ public class WebCrawler {
 
     private CompletableFuture<Void> crawlUrl(CrawlRequest request) {
         return CompletableFuture.runAsync(() -> {
-            try {
-                URL url = new URL(request.url());
-                lastCrawled.put(url.getHost(), Instant.now());
-
-                Document doc = Jsoup.connect(request.url())
-                    .userAgent(config.userAgent())
-                    .timeout(30000)
-                    .get();
-
-                String content = doc.html();
-                String contentHash = computeHash(content);
-
-                // Check if we've seen this content before
-                if (storageService.exists(contentHash).join()) {
-                    logger.debug("Skipping duplicate content: {}", request.url());
-                    return;
-                }
-
-                // Extract links
-                logger.info("🔍 Extracting links from page: {}", request.url());
-                Set<String> rawLinks = doc.select("a[href]").stream()
-                    .map(element -> element.attr("abs:href"))
-                    .filter(link -> !link.isEmpty())
-                    .collect(Collectors.toSet());
-                    
-                logger.info("🔗 Found {} raw links on page: {}", rawLinks.size(), request.url());
-                
-                // Filter links and log the filtering process
-                Set<String> links = new HashSet<>();
-                int validLinks = 0;
-                int filteredLinks = 0;
-                
-                for (String link : rawLinks) {
-                    try {
-                        URL linkUrl = new URL(link);
-                        String linkDomain = linkUrl.getHost();
-                        
-                        // Apply basic filtering (similar to shouldCrawl but for discovered links)
-                        boolean isValid = true;
-                        String filterReason = "";
-                        
-                        // Check against allowed domains if configured
-                        var allowedDomains = config.getAllowedDomainPatterns();
-                        if (!allowedDomains.isEmpty()) {
-                            boolean domainMatches = allowedDomains.stream().anyMatch(p -> p.matcher(linkDomain).matches());
-                            if (!domainMatches) {
-                                isValid = false;
-                                filterReason = "domain '" + linkDomain + "' doesn't match allowed patterns";
-                            }
-                        }
-                        
-                        // Check against exclude patterns
-                        if (isValid) {
-                            var excludePatterns = config.getExcludePatternList();
-                            boolean isExcluded = excludePatterns.stream().anyMatch(p -> p.matcher(link).matches());
-                            if (isExcluded) {
-                                isValid = false;
-                                filterReason = "matches exclude pattern";
-                            }
-                        }
-                        
-                        if (isValid) {
-                            links.add(link);
-                            validLinks++;
-                            logger.debug("✓ Valid link found: {} -> {}", linkDomain, link);
-                        } else {
-                            filteredLinks++;
-                            logger.debug("✗ Filtered link: {} -> {} (reason: {})", linkDomain, link, filterReason);
-                        }
-                    } catch (Exception e) {
-                        filteredLinks++;
-                        logger.debug("✗ Invalid link format: {} (error: {})", link, e.getMessage());
-                    }
-                }
-                
-                logger.info("📊 Link processing summary for {}: {} valid, {} filtered, {} total", 
-                    request.url(), validLinks, filteredLinks, rawLinks.size());
-                Set<String> finalLinks = links;
-
-                // Store the page
-                PageContent pageContent = new PageContent(
-                    request.url(),
-                    contentHash,
-                    content,
-                    Instant.now(),
-                    200,
-                    Map.of("Content-Type", "text/html"),
-                    links,
-                    Map.of("depth", String.valueOf(request.depth()))
-                );
-
-                logger.info("Storing page content for URL: {} (hash: {})", request.url(), contentHash);
-                storageService.store(pageContent).join();
-                logger.info("Successfully stored page: {}", request.url());
-
-                // Enqueue discovered links
-                logger.info("📤 Enqueueing {} valid links discovered from: {}", finalLinks.size(), request.url());
-                int enqueuedCount = 0;
-                for (String link : finalLinks) {
-                    try {
-                        CrawlRequest newRequest = new CrawlRequest(
-                            link,
-                            request.depth() + 1,
-                            request.url(),
-                            Instant.now(),
-                            1
-                        );
-                        urlQueue.enqueue(newRequest).join();
-                        enqueuedCount++;
-                        logger.info("✓ Enqueued link [depth {}]: {}", newRequest.depth(), link);
-                    } catch (Exception e) {
-                        logger.error("✗ Failed to enqueue link: {} (error: {})", link, e.getMessage());
-                    }
-                }
-                logger.info("🎯 Successfully enqueued {} out of {} discovered links from: {}", 
-                    enqueuedCount, finalLinks.size(), request.url());
-
-            } catch (Exception e) {
-                logger.error("Error crawling URL: {}", request.url(), e);
-            }
+            crawlUrlAux(request);
         }, executorService);
+    }
+
+    private void crawlUrlAux(CrawlRequest request) {
+        try {
+            logger.error("about to crawl: {}", request.url());
+            URL url = new URL(request.url());
+            lastCrawled.put(url.getHost(), Instant.now());
+
+            Document doc = Jsoup.connect(request.url())
+                .userAgent(config.userAgent())
+                .timeout(30000)
+                .get();
+
+            String content = doc.html();
+            String contentHash = computeHash(content);
+
+            // Check if we've seen this content before
+            if (storageService.exists(contentHash).join()) {
+                logger.debug("Skipping duplicate content: {}", request.url());
+                return;
+            }
+
+            // Extract links
+            logger.info("🔍 Extracting links from page: {}", request.url());
+            Set<String> rawLinks = doc.select("a[href]").stream()
+                .map(element -> element.attr("abs:href"))
+                .filter(link -> !link.isEmpty())
+                .collect(Collectors.toSet());
+
+            logger.info("🔗 Found {} raw links on page: {}", rawLinks.size(), request.url());
+
+            // Filter links and log the filtering process
+            Set<String> links = new HashSet<>();
+            int validLinks = 0;
+            int filteredLinks = 0;
+
+            for (String link : rawLinks) {
+                try {
+                    URL linkUrl = new URL(link);
+                    String linkDomain = linkUrl.getHost();
+
+                    // Apply basic filtering (similar to shouldCrawl but for discovered links)
+                    boolean isValid = true;
+                    String filterReason = "";
+
+                    // Check against allowed domains if configured
+                    var allowedDomains = config.getAllowedDomainPatterns();
+                    if (!allowedDomains.isEmpty()) {
+                        boolean domainMatches = allowedDomains.stream().anyMatch(p -> p.matcher(linkDomain).matches());
+                        if (!domainMatches) {
+                            isValid = false;
+                            filterReason = "domain '" + linkDomain + "' doesn't match allowed patterns";
+                        }
+                    }
+
+                    // Check against exclude patterns
+                    if (isValid) {
+                        var excludePatterns = config.getExcludePatternList();
+                        boolean isExcluded = excludePatterns.stream().anyMatch(p -> p.matcher(link).matches());
+                        if (isExcluded) {
+                            isValid = false;
+                            filterReason = "matches exclude pattern";
+                        }
+                    }
+
+                    if (isValid) {
+                        links.add(link);
+                        validLinks++;
+                        logger.debug("✓ Valid link found: {} -> {}", linkDomain, link);
+                    } else {
+                        filteredLinks++;
+                        logger.debug("✗ Filtered link: {} -> {} (reason: {})", linkDomain, link, filterReason);
+                    }
+                } catch (Exception e) {
+                    filteredLinks++;
+                    logger.debug("✗ Invalid link format: {} (error: {})", link, e.getMessage());
+                }
+            }
+
+            logger.info("📊 Link processing summary for {}: {} valid, {} filtered, {} total",
+                request.url(), validLinks, filteredLinks, rawLinks.size());
+            Set<String> finalLinks = links;
+
+            // Store the page
+            PageContent pageContent = new PageContent(
+                request.url(),
+                contentHash,
+                content,
+                Instant.now(),
+                200,
+                Map.of("Content-Type", "text/html"),
+                links,
+                Map.of("depth", String.valueOf(request.depth()))
+            );
+
+            logger.info("Storing page content for URL: {} (hash: {})", request.url(), contentHash);
+            storageService.store(pageContent).join();
+            logger.info("Successfully stored page: {}", request.url());
+
+            // Enqueue discovered links
+            logger.info("📤 Enqueueing {} valid links discovered from: {}", finalLinks.size(), request.url());
+            int enqueuedCount = 0;
+            for (String link : finalLinks) {
+                try {
+                    CrawlRequest newRequest = new CrawlRequest(
+                        link,
+                        request.depth() + 1,
+                        request.url(),
+                        Instant.now(),
+                        1
+                    );
+                    urlQueue.enqueue(newRequest).join();
+                    enqueuedCount++;
+                    logger.info("✓ Enqueued link [depth {}]: {}", newRequest.depth(), link);
+                } catch (Exception e) {
+                    logger.error("✗ Failed to enqueue link: {} (error: {})", link, e.getMessage());
+                }
+            }
+            logger.info("🎯 Successfully enqueued {} out of {} discovered links from: {}",
+                enqueuedCount, finalLinks.size(), request.url());
+
+        } catch (Exception e) {
+            logger.error("Error crawling URL: {}", request.url(), e);
+        }
     }
 
     private String computeHash(String content) {

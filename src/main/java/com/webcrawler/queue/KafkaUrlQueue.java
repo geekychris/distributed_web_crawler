@@ -16,6 +16,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -53,21 +55,27 @@ public class KafkaUrlQueue implements UrlQueue {
     }
 
     @Override
-    public CompletableFuture<CrawlRequest> dequeue() {
+    public CompletableFuture<List<CrawlRequest>> dequeue() {
         return CompletableFuture.supplyAsync(() -> {
             synchronized (consumer) {
-                var records = consumer.poll(Duration.ofSeconds(1));
-                if (records.isEmpty()) {
-                    return null;
-                }
-                var record = records.iterator().next();
-                try {
-                    return objectMapper.readValue(record.value(), CrawlRequest.class);
-                } catch (Exception e) {
-                    throw new RuntimeException("Failed to deserialize CrawlRequest", e);
-                }
+                return getCrawlRequest();
             }
         });
+    }
+
+    private List<CrawlRequest> getCrawlRequest() {
+        List<CrawlRequest> requests = new ArrayList<>();
+        var records = consumer.poll(Duration.ofSeconds(1));
+        if (records.isEmpty()) {
+            return null;
+        }
+        var record = records.iterator().next();
+        try {
+            requests.add(objectMapper.readValue(record.value(), CrawlRequest.class));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to deserialize CrawlRequest", e);
+        }
+        return requests;
     }
 
     private KafkaProducer<String, String> createProducer(String bootstrapServers) {
