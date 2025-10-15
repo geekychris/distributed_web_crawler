@@ -63,8 +63,10 @@ public class WebCrawler {
         // Seed the queue with initial URLs
         seedUrlQueue();
 
-        // Start crawler workers
-        for (int i = 0; i < config.maxConcurrentRequests(); i++) {
+        // Start batch crawler workers (fewer workers since each handles batches)
+        int workerCount = Math.max(1, config.maxConcurrentRequests() / 5); // Use fewer workers for batch processing
+        logger.info("Starting {} batch crawler workers", workerCount);
+        for (int i = 0; i < workerCount; i++) {
             CompletableFuture.runAsync(this::crawlLoop, executorService);
         }
     }
@@ -95,55 +97,101 @@ public class WebCrawler {
     }
 
     private void crawlLoop() {
-        logger.info("Starting crawl loop thread: {}", Thread.currentThread().getName());
+        logger.info("Starting batch crawl loop thread: {}", Thread.currentThread().getName());
         while (isRunning) {
             try {
-                logger.debug("Attempting to dequeue URL...");
-                List<CrawlRequest> requests = urlQueue.dequeue().join();
-                if (requests == null) {
-                    logger.debug("No URL found in queue, sleeping...");
-                    Thread.sleep(1000);
+                // Poll for a batch of URLs
+                logger.debug("Polling for batch of URLs (timeout: {}ms)...", config.pollTimeout().toMillis());
+                List<CrawlRequest> requests = urlQueue.pollBatch(config.pollTimeout().toMillis()).join();
+                
+                if (requests.isEmpty()) {
+                    logger.debug("No URLs found in batch poll, continuing...");
                     continue;
                 }
-                for (CrawlRequest request : requests) {
-                    if (request == null) {
-                        logger.debug("No URL found in queue, sleeping...");
-                        Thread.sleep(1000);
-                        continue;
-                    }
-
-                    logger.info("Processing URL: {} (depth: {}, retry: {})", request.url(), request.depth(), request.retryCount());
-                    
-                    // Check if request is scheduled for the future
-                    if (!request.isReadyToProcess()) {
-                        logger.debug("Request not ready yet, re-queuing: {} (scheduled for: {})", 
-                            request.url(), request.scheduledFor());
-                        urlQueue.enqueue(request);
-                        continue;
-                    }
-                    
-                    CrawlDecision decision = shouldCrawl(request);
-                    switch (decision.action()) {
-                        case CRAWL -> {
-                            logger.info("URL passed validation, starting crawl: {}", request.url());
-                            crawlUrlAux(request);
-                            logger.info("Successfully crawled URL: {}", request.url());
-                        }
-                        case RETRY_LATER -> {
-                            logger.info("Scheduling URL for retry: {} (reason: {}, retry #{}, scheduled for: {})", 
-                                request.url(), decision.reason(), request.retryCount() + 1, decision.retryAt());
-                            scheduleRetry(request, decision.retryAt());
-                        }
-                        case REJECT -> {
-                            logger.info("URL rejected: {} (reason: {})", request.url(), decision.reason());
-                        }
-                    }
-                }
+                
+                logger.info("📦 Received batch of {} URLs to process", requests.size());
+                
+                // Process batch in parallel using Virtual Threads
+                processBatchInParallel(requests);
+                
+                // Commit the batch only after all URLs are processed
+                logger.info("✅ All URLs in batch processed successfully, committing offsets");
+                urlQueue.commitBatch().join();
+                
             } catch (Exception e) {
-                logger.error("Error in crawl loop", e);
+                logger.error("Error in batch crawl loop", e);
+                // Sleep briefly before retrying
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
             }
         }
-        logger.info("Crawl loop thread exiting: {}", Thread.currentThread().getName());
+        logger.info("Batch crawl loop thread exiting: {}", Thread.currentThread().getName());
+    }
+    
+    private void processBatchInParallel(List<CrawlRequest> requests) {
+        logger.info("🚀 Starting parallel processing of {} URLs using Virtual Threads", requests.size());
+        
+        // Create virtual thread tasks for each URL
+        List<CompletableFuture<Void>> crawlTasks = requests.stream()
+            .map(this::createCrawlTask)
+            .toList();
+        
+        // Wait for all crawl tasks to complete
+        CompletableFuture<Void> allTasks = CompletableFuture.allOf(
+            crawlTasks.toArray(new CompletableFuture[0])
+        );
+        
+        try {
+            allTasks.join(); // Wait for all tasks to complete
+            logger.info("✅ Completed parallel processing of {} URLs", requests.size());
+        } catch (Exception e) {
+            logger.error("❌ Error during parallel processing of batch", e);
+            // Continue processing - individual errors are logged in each task
+        }
+    }
+    
+    private CompletableFuture<Void> createCrawlTask(CrawlRequest request) {
+        return CompletableFuture.runAsync(() -> {
+            try {
+                processSingleRequest(request);
+            } catch (Exception e) {
+                logger.error("Error processing URL: {}", request.url(), e);
+            }
+        }, Executors.newVirtualThreadPerTaskExecutor());
+    }
+    
+    private void processSingleRequest(CrawlRequest request) {
+        logger.info("🔍 Processing URL: {} (depth: {}, retry: {}) [Thread: {}]", 
+            request.url(), request.depth(), request.retryCount(), Thread.currentThread().getName());
+        
+        // Check if request is scheduled for the future
+        if (!request.isReadyToProcess()) {
+            logger.debug("Request not ready yet, re-queuing: {} (scheduled for: {})", 
+                request.url(), request.scheduledFor());
+            urlQueue.enqueue(request);
+            return;
+        }
+        
+        CrawlDecision decision = shouldCrawl(request);
+        switch (decision.action()) {
+            case CRAWL -> {
+                logger.info("✅ URL passed validation, starting crawl: {} [{}]", request.url(), Thread.currentThread().getName());
+                crawlUrlAux(request);
+                logger.info("🎯 Successfully crawled URL: {} [{}]", request.url(), Thread.currentThread().getName());
+            }
+            case RETRY_LATER -> {
+                logger.info("⏰ Scheduling URL for retry: {} (reason: {}, retry #{}, scheduled for: {})", 
+                    request.url(), decision.reason(), request.retryCount() + 1, decision.retryAt());
+                scheduleRetry(request, decision.retryAt());
+            }
+            case REJECT -> {
+                logger.info("❌ URL rejected: {} (reason: {})", request.url(), decision.reason());
+            }
+        }
     }
 
     private CrawlDecision shouldCrawl(CrawlRequest request) {

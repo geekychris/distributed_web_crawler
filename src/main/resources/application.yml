@@ -51,6 +51,8 @@ crawler:
   user-agent: "DistributedCrawler/1.0"
   max-retry-attempts: 3
   enable-delay-retry: true
+  batch-size: 10
+  poll-timeout: PT5S
 
 kafka:
   bootstrap-servers: localhost:9092

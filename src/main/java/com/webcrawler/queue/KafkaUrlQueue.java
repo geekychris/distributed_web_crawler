@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import org.apache.kafka.clients.consumer.ConsumerRecords;
 
 @Component
 public class KafkaUrlQueue implements UrlQueue {
@@ -77,6 +78,38 @@ public class KafkaUrlQueue implements UrlQueue {
         }
         return requests;
     }
+    
+    @Override
+    public CompletableFuture<List<CrawlRequest>> pollBatch(long timeoutMs) {
+        return CompletableFuture.supplyAsync(() -> {
+            synchronized (consumer) {
+                ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(timeoutMs));
+                if (records.isEmpty()) {
+                    return List.of(); // Return empty list instead of null for batch processing
+                }
+                
+                List<CrawlRequest> requests = new ArrayList<>();
+                for (var record : records) {
+                    try {
+                        CrawlRequest request = objectMapper.readValue(record.value(), CrawlRequest.class);
+                        requests.add(request);
+                    } catch (Exception e) {
+                        throw new RuntimeException("Failed to deserialize CrawlRequest from: " + record.value(), e);
+                    }
+                }
+                return requests;
+            }
+        });
+    }
+    
+    @Override
+    public CompletableFuture<Void> commitBatch() {
+        return CompletableFuture.runAsync(() -> {
+            synchronized (consumer) {
+                consumer.commitSync();
+            }
+        });
+    }
 
     private KafkaProducer<String, String> createProducer(String bootstrapServers) {
         Properties props = new Properties();
@@ -94,7 +127,8 @@ public class KafkaUrlQueue implements UrlQueue {
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "true");
+        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
+        props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, "50");
         return new KafkaConsumer<>(props);
     }
 

@@ -20,7 +20,9 @@ public record CrawlerProperties(
     @DefaultValue("true") boolean respectRobotsTxt,
     @DefaultValue("DistributedCrawler/1.0") String userAgent,
     @DefaultValue("3") int maxRetryAttempts,
-    @DefaultValue("true") boolean enableDelayRetry
+    @DefaultValue("true") boolean enableDelayRetry,
+    @DefaultValue("10") int batchSize,
+    @DefaultValue("PT5S") Duration pollTimeout
 ) {
     public Set<Pattern> getAllowedDomainPatterns() {
         return allowedDomains != null ? 
