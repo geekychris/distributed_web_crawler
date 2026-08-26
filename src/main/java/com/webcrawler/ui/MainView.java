@@ -230,6 +230,7 @@ public class MainView extends VerticalLayout {
             .setSortable(true);
             
         grid.addColumn(page -> {
+            if (page.fetchTime() == null) return "";
             return DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
                 .format(page.fetchTime().atZone(ZoneId.systemDefault()));
         })
@@ -355,11 +356,15 @@ public class MainView extends VerticalLayout {
         
         // Header with page info
         H3 title = new H3("Page Content: " + page.url());
+        String fetchedText = page.fetchTime() == null
+                ? "n/a"
+                : DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                        .format(page.fetchTime().atZone(ZoneId.systemDefault()));
         Paragraph info = new Paragraph(String.format(
             "Status: %d | Fetched: %s | Hash: %s | Links: %d",
             page.httpStatus(),
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").format(page.fetchTime().atZone(ZoneId.systemDefault())),
-            page.contentHash(),
+            fetchedText,
+            page.contentHash() == null ? "n/a" : page.contentHash(),
             page.links() != null ? page.links().size() : 0
         ));
         
