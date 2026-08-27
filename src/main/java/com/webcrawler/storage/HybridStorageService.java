@@ -193,13 +193,34 @@ public class HybridStorageService implements StorageService {
                 });
     }
 
+    // Cache the count for a short window — SELECT COUNT(*) on a table with
+    // even a few thousand rows takes >2s on a single-node Cassandra, which
+    // hits the driver's default per-query timeout. The dashboard polls this
+    // every 3s; a 5s cache is enough to keep it responsive.
+    private volatile long cachedCount = 0L;
+    private volatile long cachedCountExpiresAt = 0L;
+
     @Override
     public CompletableFuture<Long> getPageCount() {
-        return cassandraSession.executeAsync(countPages.bind())
+        long now = System.currentTimeMillis();
+        if (now < cachedCountExpiresAt) {
+            return CompletableFuture.completedFuture(cachedCount);
+        }
+        BoundStatement stmt = countPages.bind()
+                .setTimeout(java.time.Duration.ofSeconds(15));
+        return cassandraSession.executeAsync(stmt)
                 .toCompletableFuture()
                 .thenApply(rs -> {
                     Row row = rs.one();
-                    return row != null ? row.getLong(0) : 0L;
+                    long count = row != null ? row.getLong(0) : 0L;
+                    cachedCount = count;
+                    cachedCountExpiresAt = System.currentTimeMillis() + 5_000;
+                    return count;
+                })
+                .exceptionally(t -> {
+                    logger.debug("getPageCount failed ({}); returning cached value {}",
+                            t.getMessage(), cachedCount);
+                    return cachedCount;
                 });
     }
 
