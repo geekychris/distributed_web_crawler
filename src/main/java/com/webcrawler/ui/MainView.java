@@ -35,6 +35,7 @@ import com.webcrawler.service.FeedPackService;
 import com.webcrawler.service.FeedPoller;
 import com.webcrawler.service.FeedRepository;
 import com.webcrawler.service.ScopeService;
+import com.webcrawler.service.StatsService;
 import com.webcrawler.storage.StorageService;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -43,6 +44,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ScheduledExecutorService;
@@ -62,6 +64,7 @@ public class MainView extends VerticalLayout {
     private final FeedRepository feedRepo;
     private final FeedPackService feedPacks;
     private final FeedPoller feedPoller;
+    private final StatsService statsService;
 
     // Dashboard components
     private Button startStopButton;
@@ -88,7 +91,7 @@ public class MainView extends VerticalLayout {
                     ActivityFeed activityFeed, CrawlJobService jobService,
                     com.webcrawler.queue.UrlQueue urlQueue,
                     FeedRepository feedRepo, FeedPackService feedPacks,
-                    FeedPoller feedPoller) {
+                    FeedPoller feedPoller, StatsService statsService) {
         this.crawlerService = crawlerService;
         this.storageService = storageService;
         this.activityFeed = activityFeed;
@@ -97,6 +100,7 @@ public class MainView extends VerticalLayout {
         this.feedRepo = feedRepo;
         this.feedPacks = feedPacks;
         this.feedPoller = feedPoller;
+        this.statsService = statsService;
         
         setSizeFull();
         setPadding(true);
@@ -112,7 +116,8 @@ public class MainView extends VerticalLayout {
         Tab feedsTab = new Tab("Feeds");
         Tab packsTab = new Tab("Feed Packs");
         Tab queryTab = new Tab("Query Database");
-        tabs.add(dashboardTab, startCrawlTab, jobsTab, feedsTab, packsTab, queryTab);
+        Tab statsTab = new Tab("Stats");
+        tabs.add(dashboardTab, startCrawlTab, jobsTab, feedsTab, packsTab, queryTab, statsTab);
 
         Div contentArea = new Div();
         contentArea.setSizeFull();
@@ -127,6 +132,7 @@ public class MainView extends VerticalLayout {
             else if (selectedTab == feedsTab) contentArea.add(createFeedsContent());
             else if (selectedTab == packsTab) contentArea.add(createFeedPacksContent());
             else if (selectedTab == queryTab) contentArea.add(createQueryContent());
+            else if (selectedTab == statsTab) contentArea.add(createStatsContent());
         });
 
         add(tabs, contentArea);
@@ -698,6 +704,177 @@ public class MainView extends VerticalLayout {
         return layout;
     }
 
+    // -----------------------------------------------------------------
+    // Stats tab — counters, unhealthy-feeds list, filterable console,
+    // NDJSON download buttons
+    // -----------------------------------------------------------------
+
+    @SuppressWarnings("unchecked")
+    private Component createStatsContent() {
+        VerticalLayout layout = new VerticalLayout();
+        layout.setSizeFull();
+        layout.setPadding(false);
+        layout.setSpacing(true);
+
+        // -- Counter cards --
+        HorizontalLayout cards = new HorizontalLayout();
+        cards.setWidthFull();
+        cards.getStyle().set("flex-wrap", "wrap").set("gap", "1rem");
+        Map<String, Object> summary;
+        try { summary = statsService.summary(); }
+        catch (Exception ex) {
+            layout.add(new Paragraph("Stats unavailable: " + ex.getMessage()));
+            return layout;
+        }
+
+        Object pagesTotal = summary.get("pages_total");
+        Object feedItemsTotal = summary.get("feed_items_total");
+        Map<String, Object> feeds = (Map<String, Object>) summary.getOrDefault("feeds", Map.of());
+        Map<String, Object> jobs = (Map<String, Object>) summary.getOrDefault("jobs", Map.of());
+        Map<String, Object> act = (Map<String, Object>) summary.getOrDefault("activity", Map.of());
+
+        cards.add(counterCard("Pages", String.valueOf(pagesTotal), "crawled and stored"));
+        cards.add(counterCard("Feed items", String.valueOf(feedItemsTotal),
+                "unique items across all feeds"));
+        cards.add(counterCard("Feeds", String.valueOf(feeds.getOrDefault("total", 0)),
+                summaryOfStatusMap((Map<String, Object>) feeds.get("by_status"))));
+        cards.add(counterCard("Jobs", String.valueOf(jobs.getOrDefault("total", 0)),
+                summaryOfStatusMap((Map<String, Object>) jobs.get("by_status"))));
+        cards.add(counterCard("Rate", act.getOrDefault("pages_per_minute", 0) + " pages/min",
+                act.getOrDefault("crawled", 0) + " crawled, "
+              + act.getOrDefault("rejected", 0) + " rejected in last 5m"));
+        layout.add(cards);
+
+        // -- Unhealthy feeds --
+        List<Map<String, Object>> unhealthy = (List<Map<String, Object>>)
+                summary.getOrDefault("unhealthy_feeds", List.of());
+        if (!unhealthy.isEmpty()) {
+            layout.add(new H3("Feeds needing attention"));
+            Grid<Map<String, Object>> unhealthyGrid = new Grid<>();
+            unhealthyGrid.addColumn(m -> m.get("title")).setHeader("Feed").setFlexGrow(2);
+            unhealthyGrid.addColumn(m -> m.get("status")).setHeader("Status").setWidth("110px");
+            unhealthyGrid.addColumn(m -> m.get("consecutive_errors"))
+                    .setHeader("Err streak").setWidth("100px");
+            unhealthyGrid.addColumn(m -> m.get("consecutive_empty"))
+                    .setHeader("Empty streak").setWidth("110px");
+            unhealthyGrid.addColumn(m -> {
+                Object lp = m.get("last_polled_at");
+                if (lp == null) return "never";
+                return String.valueOf(lp).substring(0, Math.min(19, String.valueOf(lp).length()));
+            }).setHeader("Last polled").setWidth("180px");
+            unhealthyGrid.setItems(unhealthy);
+            unhealthyGrid.setHeight("240px");
+            layout.add(unhealthyGrid);
+        }
+
+        // -- Filterable activity console --
+        layout.add(new H3("Activity console"));
+        Checkbox showCrawled = new Checkbox("crawled", true);
+        Checkbox showRejected = new Checkbox("rejected", true);
+        Checkbox showErrors = new Checkbox("errors", true);
+        TextField filterField = new TextField();
+        filterField.setPlaceholder("filter by URL substring");
+        filterField.setWidth("260px");
+        Button refresh = new Button("Refresh", new Icon(VaadinIcon.REFRESH));
+        HorizontalLayout ctrls = new HorizontalLayout(showCrawled, showRejected, showErrors, filterField, refresh);
+        ctrls.setAlignItems(FlexComponent.Alignment.END);
+
+        Div console = new Div();
+        console.getStyle()
+                .set("border", "1px solid var(--lumo-contrast-20pct)")
+                .set("border-radius", "var(--lumo-border-radius)")
+                .set("padding", "1rem")
+                .set("background", "var(--lumo-contrast-5pct)")
+                .set("font-family", "monospace")
+                .set("font-size", "12px")
+                .set("white-space", "pre-wrap")
+                .set("min-height", "300px")
+                .set("max-height", "500px")
+                .set("overflow", "auto");
+
+        Runnable render = () -> renderActivityConsole(console,
+                showCrawled.getValue(), showRejected.getValue(), showErrors.getValue(),
+                filterField.getValue());
+        refresh.addClickListener(e -> render.run());
+        showCrawled.addValueChangeListener(e -> render.run());
+        showRejected.addValueChangeListener(e -> render.run());
+        showErrors.addValueChangeListener(e -> render.run());
+        filterField.addValueChangeListener(e -> render.run());
+        render.run();
+        layout.add(ctrls, console);
+
+        // -- Export buttons --
+        layout.add(new H3("Export (NDJSON / JSONL)"));
+        Anchor pagesExport = new Anchor("/api/export/pages.ndjson?limit=100000", "");
+        pagesExport.getElement().setAttribute("download", true);
+        pagesExport.add(new Button("Download pages.ndjson", new Icon(VaadinIcon.DOWNLOAD)));
+        Anchor itemsExport = new Anchor("/api/export/feed_items.ndjson?limit=100000", "");
+        itemsExport.getElement().setAttribute("download", true);
+        itemsExport.add(new Button("Download feed_items.ndjson", new Icon(VaadinIcon.DOWNLOAD)));
+        Paragraph note = new Paragraph(
+                "Streamed via chunked transfer — safe for large exports. "
+              + "REST equivalents documented at /swagger-ui.html under \"Export\".");
+        note.getStyle().set("color", "var(--lumo-secondary-text-color)").set("font-size", "12px");
+        HorizontalLayout exports = new HorizontalLayout(pagesExport, itemsExport);
+        layout.add(exports, note);
+        return layout;
+    }
+
+    private void renderActivityConsole(Div console, boolean crawled, boolean rejected,
+                                       boolean errors, String urlFilter) {
+        String needle = urlFilter == null ? "" : urlFilter.trim().toLowerCase();
+        StringBuilder sb = new StringBuilder();
+        int shown = 0;
+        for (ActivityFeed.Event e : activityFeed.recent(200)) {
+            if (e.kind() == ActivityFeed.Kind.CRAWLED && !crawled) continue;
+            if (e.kind() == ActivityFeed.Kind.REJECTED && !rejected) continue;
+            if (e.kind() == ActivityFeed.Kind.ERROR && !errors) continue;
+            if (!needle.isEmpty()
+                    && (e.url() == null || !e.url().toLowerCase().contains(needle))) continue;
+            String stamp = DateTimeFormatter.ofPattern("HH:mm:ss")
+                    .format(e.at().atZone(ZoneId.systemDefault()));
+            String icon = switch (e.kind()) {
+                case CRAWLED -> "✓";
+                case REJECTED -> "✗";
+                case ERROR -> "!";
+            };
+            sb.append(stamp).append(" ").append(icon).append(" ")
+                    .append(e.url()).append("  ").append(e.detail()).append('\n');
+            shown++;
+        }
+        if (shown == 0) sb.append("No matching events. Adjust filters or wait for activity.");
+        else sb.insert(0, shown + " event(s) shown\n\n");
+        console.setText(sb.toString());
+    }
+
+    private Component counterCard(String label, String value, String subtitle) {
+        VerticalLayout card = new VerticalLayout();
+        card.setWidth("220px");
+        card.setPadding(true);
+        card.setSpacing(false);
+        card.getStyle()
+                .set("border", "1px solid var(--lumo-contrast-20pct)")
+                .set("border-radius", "var(--lumo-border-radius)")
+                .set("background", "var(--lumo-contrast-5pct)");
+        Span labelSpan = new Span(label);
+        labelSpan.getStyle().set("color", "var(--lumo-secondary-text-color)")
+                .set("font-size", "12px").set("text-transform", "uppercase");
+        H3 valueSpan = new H3(value);
+        valueSpan.getStyle().set("margin", "0.25rem 0");
+        Span subtitleSpan = new Span(subtitle == null ? "" : subtitle);
+        subtitleSpan.getStyle().set("color", "var(--lumo-secondary-text-color)")
+                .set("font-size", "12px");
+        card.add(labelSpan, valueSpan, subtitleSpan);
+        return card;
+    }
+
+    private String summaryOfStatusMap(Map<String, Object> byStatus) {
+        if (byStatus == null || byStatus.isEmpty()) return "";
+        return byStatus.entrySet().stream()
+                .map(e -> e.getValue() + " " + e.getKey().toLowerCase())
+                .collect(Collectors.joining(", "));
+    }
+
     private Component createQueryContent() {
         VerticalLayout layout = new VerticalLayout();
         layout.setSizeFull();
@@ -723,8 +900,16 @@ public class MainView extends VerticalLayout {
         Button refreshButton = new Button("Refresh", new Icon(VaadinIcon.REFRESH));
         refreshButton.addClickListener(e -> performSearch());
 
+        Anchor exportPages = new Anchor("/api/export/pages.ndjson?limit=100000", "");
+        exportPages.getElement().setAttribute("download", true);
+        exportPages.add(new Button("Export pages.ndjson", new Icon(VaadinIcon.DOWNLOAD)));
+        Anchor exportItems = new Anchor("/api/export/feed_items.ndjson?limit=100000", "");
+        exportItems.getElement().setAttribute("download", true);
+        exportItems.add(new Button("Export feed_items.ndjson", new Icon(VaadinIcon.DOWNLOAD)));
+
         HorizontalLayout searchLayout = new HorizontalLayout(
-                contentTypeCombo, searchField, searchButton, refreshButton);
+                contentTypeCombo, searchField, searchButton, refreshButton,
+                exportPages, exportItems);
         searchLayout.setWidthFull();
         searchLayout.setFlexGrow(1, searchField);
         searchLayout.setAlignItems(FlexComponent.Alignment.END);

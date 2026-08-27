@@ -287,6 +287,47 @@ fi
 expect_status "unknown type returns 400" GET "$HOST/api/records?type=nonsense" 400
 expect_status "unknown stream returns 400" GET "$HOST/api/records?type=page&stream=nonsense" 400
 
+section "Stats endpoint"
+expect_status "GET /api/stats/summary returns 200" GET "$HOST/api/stats/summary" 200
+SUMMARY=$(curl -sS "$HOST/api/stats/summary")
+KEYS_OK=$(printf '%s' "$SUMMARY" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+required = {"timestamp","pages_total","feed_items_total","feeds","jobs","activity"}
+missing = required - set(d.keys())
+print("ok" if not missing else "missing:" + ",".join(missing))
+')
+if [ "$KEYS_OK" = "ok" ]; then
+    printf '  ok  summary has all required keys\n'; pass=$((pass+1))
+else
+    printf '  FAIL summary missing keys: %s\n' "$KEYS_OK"
+    failures+=("stats summary keys"); fail=$((fail+1))
+fi
+
+section "NDJSON export"
+PAGES_NDJSON=$(curl -sS -H 'Accept: application/x-ndjson' \
+    "$HOST/api/export/pages.ndjson?limit=10")
+PAGES_CT=$(curl -sI "$HOST/api/export/pages.ndjson?limit=1" | grep -i '^Content-Type:' | tr -d '\r')
+if printf '%s' "$PAGES_CT" | grep -qi 'application/x-ndjson'; then
+    printf '  ok  pages export Content-Type is application/x-ndjson\n'; pass=$((pass+1))
+else
+    printf '  FAIL pages export Content-Type wrong: %s\n' "$PAGES_CT"
+    failures+=("pages export content-type"); fail=$((fail+1))
+fi
+PAGES_LINES=$(printf '%s\n' "$PAGES_NDJSON" | grep -c '^{')
+if [ "$PAGES_LINES" -gt 0 ]; then
+    printf '  ok  pages export streamed %s NDJSON line(s)\n' "$PAGES_LINES"; pass=$((pass+1))
+else
+    printf '  WARN pages export returned 0 lines (empty pages table?)\n'
+fi
+
+ITEMS_LINES=$(curl -sS "$HOST/api/export/feed_items.ndjson?limit=5" | grep -c '^{')
+if [ "$ITEMS_LINES" -gt 0 ]; then
+    printf '  ok  feed_items export streamed %s NDJSON line(s)\n' "$ITEMS_LINES"; pass=$((pass+1))
+else
+    printf '  WARN feed_items export returned 0 lines\n'
+fi
+
 section "Follow-articles pipeline"
 # Subscribe to a small RSS feed with follow_articles=true, then verify that
 # after the poll fires we see page CloudEvents whose source_feed_item_id
