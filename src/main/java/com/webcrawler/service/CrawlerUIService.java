@@ -16,22 +16,25 @@ import java.util.concurrent.CompletableFuture;
 
 @Service
 public class CrawlerUIService {
-    
+
     private final WebCrawler webCrawler;
     private final CrawlerProperties crawlerProperties;
     private final UrlQueue urlQueue;
     private final StorageService storageService;
+    private final ScopeService scope;
     private final Instant startTime = Instant.now();
-    
+
     @Autowired
-    public CrawlerUIService(WebCrawler webCrawler, 
+    public CrawlerUIService(WebCrawler webCrawler,
                            CrawlerProperties crawlerProperties,
                            UrlQueue urlQueue,
-                           StorageService storageService) {
+                           StorageService storageService,
+                           ScopeService scope) {
         this.webCrawler = webCrawler;
         this.crawlerProperties = crawlerProperties;
         this.urlQueue = urlQueue;
         this.storageService = storageService;
+        this.scope = scope;
     }
     
     public CrawlerStats getCrawlerStats() {
@@ -57,6 +60,8 @@ public class CrawlerUIService {
     }
     
     public CompletableFuture<Void> addSeedUrl(String url) {
+        // User explicitly asked us to crawl this — trust it, expand runtime scope.
+        scope.trustSubmission(url);
         CrawlRequest request = new CrawlRequest(url, 0, null, Instant.now(), 1);
         return urlQueue.enqueue(request);
     }

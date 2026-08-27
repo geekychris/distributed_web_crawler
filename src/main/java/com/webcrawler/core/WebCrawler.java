@@ -5,7 +5,9 @@ import com.webcrawler.model.CrawlRequest;
 import com.webcrawler.model.PageContent;
 import com.webcrawler.queue.BatchConsumer;
 import com.webcrawler.queue.UrlQueue;
+import com.webcrawler.service.ActivityFeed;
 import com.webcrawler.service.CrawlJobService;
+import com.webcrawler.service.ScopeService;
 import com.webcrawler.storage.StorageService;
 import crawlercommons.filters.basic.BasicURLNormalizer;
 import crawlercommons.robots.SimpleRobotRules;
@@ -42,6 +44,8 @@ public class WebCrawler {
     private final UrlQueue urlQueue;
     private final StorageService storageService;
     private final CrawlJobService jobs;
+    private final ScopeService scope;
+    private final ActivityFeed activity;
 
     private final ExecutorService fetchExecutor;
     private final ScheduledExecutorService retryScheduler;
@@ -64,11 +68,15 @@ public class WebCrawler {
     public WebCrawler(CrawlerProperties config,
                       UrlQueue urlQueue,
                       StorageService storageService,
-                      CrawlJobService jobs) {
+                      CrawlJobService jobs,
+                      ScopeService scope,
+                      ActivityFeed activity) {
         this.config = config;
         this.urlQueue = urlQueue;
         this.storageService = storageService;
         this.jobs = jobs;
+        this.scope = scope;
+        this.activity = activity;
         // Shared virtual-thread executor for per-URL work — one instance,
         // never recreated per batch. Fixes the exit-137 OOM caused by
         // creating a fresh executor per URL that never got shut down.
@@ -191,7 +199,10 @@ public class WebCrawler {
         switch (decision.action()) {
             case CRAWL -> crawlUrlAux(request);
             case RETRY_LATER -> scheduleRetry(request, decision.retryAt());
-            case REJECT -> logger.debug("Rejected {}: {}", request.url(), decision.reason());
+            case REJECT -> {
+                logger.info("Rejected {} — {}", request.url(), decision.reason());
+                activity.rejected(request.url(), decision.reason());
+            }
         }
     }
 
@@ -207,14 +218,9 @@ public class WebCrawler {
                 return CrawlDecision.reject("retry limit " + config.maxRetryAttempts());
             }
 
-            var allowedDomains = config.getAllowedDomainPatterns();
-            if (!allowedDomains.isEmpty()
-                    && allowedDomains.stream().noneMatch(p -> p.matcher(domain).find())) {
-                return CrawlDecision.reject("domain not allowed");
-            }
-            var excludePatterns = config.getExcludePatternList();
-            if (excludePatterns.stream().anyMatch(p -> p.matcher(request.url()).find())) {
-                return CrawlDecision.reject("matches exclude pattern");
+            if (!scope.allows(request.url())) {
+                return CrawlDecision.reject(
+                        "domain '" + domain + "' not in scope (add via /api/crawler/url or the Add URLs tab to trust it)");
             }
 
             // Politeness: sleep for the remaining delay rather than requeue.
@@ -333,42 +339,28 @@ public class WebCrawler {
                     .orTimeout(30, TimeUnit.SECONDS)
                     .join();
 
+            activity.crawled(request.url(), status, discoveredLinks.size());
+
             // Enqueue discovered links — depth-checked here to avoid
             // 2-4x wasted Kafka/Cassandra/log traffic.
             enqueueDiscoveredLinks(request, discoveredLinks);
 
         } catch (IOException e) {
             logger.warn("Crawl failed for {}: {}", request.url(), e.getMessage());
+            activity.error(request.url(), e.getMessage());
         } catch (Exception e) {
             logger.error("Unexpected error crawling {}", request.url(), e);
+            activity.error(request.url(), e.getMessage());
         }
     }
 
     private Set<String> extractAndFilterLinks(Document doc, CrawlRequest request) {
-        var allowedDomains = config.getAllowedDomainPatterns();
-        var excludePatterns = config.getExcludePatternList();
-
         return doc.select("a[href]").stream()
                 .map(el -> el.attr("abs:href"))
                 .map(this::normalize)
                 .filter(Objects::nonNull)
-                .filter(link -> passesScope(link, allowedDomains, excludePatterns))
+                .filter(scope::allows)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
-    }
-
-    private boolean passesScope(String link,
-                                Set<java.util.regex.Pattern> allowedDomains,
-                                Set<java.util.regex.Pattern> excludePatterns) {
-        try {
-            String host = new URL(link).getHost();
-            if (!allowedDomains.isEmpty()
-                    && allowedDomains.stream().noneMatch(p -> p.matcher(host).find())) {
-                return false;
-            }
-            return excludePatterns.stream().noneMatch(p -> p.matcher(link).find());
-        } catch (Exception e) {
-            return false;
-        }
     }
 
     private void enqueueDiscoveredLinks(CrawlRequest parent, Set<String> links) {

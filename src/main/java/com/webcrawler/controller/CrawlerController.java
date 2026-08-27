@@ -1,6 +1,8 @@
 package com.webcrawler.controller;
 
+import com.webcrawler.service.ActivityFeed;
 import com.webcrawler.service.CrawlerUIService;
+import com.webcrawler.service.ScopeService;
 import com.webcrawler.storage.StorageService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -21,10 +23,30 @@ import java.util.concurrent.CompletableFuture;
 public class CrawlerController {
 
     private final CrawlerUIService crawlerUIService;
+    private final ActivityFeed activity;
+    private final ScopeService scope;
 
     @Autowired
-    public CrawlerController(CrawlerUIService crawlerUIService) {
+    public CrawlerController(CrawlerUIService crawlerUIService,
+                             ActivityFeed activity,
+                             ScopeService scope) {
         this.crawlerUIService = crawlerUIService;
+        this.activity = activity;
+        this.scope = scope;
+    }
+
+    @GetMapping("/activity")
+    @Operation(summary = "Recent crawl activity (in-memory ring buffer)")
+    public ResponseEntity<List<ActivityFeed.Event>> activity(
+            @RequestParam(defaultValue = "50") int limit) {
+        return ResponseEntity.ok(activity.recent(limit));
+    }
+
+    @GetMapping("/scope")
+    @Operation(summary = "Domains currently in-scope (configured + user-submitted)")
+    public ResponseEntity<Map<String, Object>> scope() {
+        return ResponseEntity.ok(Map.of(
+                "allowedDomains", scope.allowedDomainsSnapshot()));
     }
 
     @PostMapping("/start")

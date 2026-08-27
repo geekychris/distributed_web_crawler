@@ -19,12 +19,14 @@ import com.vaadin.flow.data.renderer.ComponentRenderer;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 import com.vaadin.flow.server.Command;
+import com.webcrawler.service.ActivityFeed;
 import com.webcrawler.service.CrawlerUIService;
 import com.webcrawler.storage.StorageService;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -35,12 +37,14 @@ public class MainView extends VerticalLayout {
 
     private final CrawlerUIService crawlerService;
     private final StorageService storageService;
-    
+    private final ActivityFeed activityFeed;
+
     // Dashboard components
     private Button startStopButton;
     private Span statusSpan;
     private Span uptimeSpan;
     private Span pageCountSpan;
+    private Div activityBox;
     
     // URL submission components
     private TextArea urlsTextArea;
@@ -54,9 +58,11 @@ public class MainView extends VerticalLayout {
     private ScheduledExecutorService scheduler;
     
     @Autowired
-    public MainView(CrawlerUIService crawlerService, StorageService storageService) {
+    public MainView(CrawlerUIService crawlerService, StorageService storageService,
+                    ActivityFeed activityFeed) {
         this.crawlerService = crawlerService;
         this.storageService = storageService;
+        this.activityFeed = activityFeed;
         
         setSizeFull();
         setPadding(true);
@@ -108,19 +114,21 @@ public class MainView extends VerticalLayout {
         VerticalLayout layout = new VerticalLayout();
         layout.setSpacing(true);
         layout.setPadding(false);
-        
+
         // Control panel
-        HorizontalLayout controls = new HorizontalLayout();
-        startStopButton = new Button();
+        boolean running = false;
+        try { running = crawlerService.getCrawlerStats().isRunning(); } catch (Exception ignored) {}
+        startStopButton = new Button(running ? "Stop Crawler" : "Start Crawler");
+        startStopButton.addThemeVariants(running ? ButtonVariant.LUMO_ERROR : ButtonVariant.LUMO_SUCCESS);
         startStopButton.addClickListener(e -> toggleCrawler());
-        controls.add(startStopButton);
+        HorizontalLayout controls = new HorizontalLayout(startStopButton);
         controls.setAlignItems(FlexComponent.Alignment.CENTER);
-        
+
         // Status display
         statusSpan = new Span();
         uptimeSpan = new Span();
         pageCountSpan = new Span();
-        
+
         VerticalLayout statusLayout = new VerticalLayout(
             new H3("Status"),
             statusSpan,
@@ -134,9 +142,53 @@ public class MainView extends VerticalLayout {
         statusLayout.getStyle()
             .set("border", "1px solid var(--lumo-contrast-20pct)")
             .set("border-radius", "var(--lumo-border-radius)");
-            
-        layout.add(statusLayout);
+
+        // Live activity feed — the last N crawl outcomes so users can see
+        // what's happening after submitting a URL.
+        activityBox = new Div();
+        activityBox.getStyle()
+                .set("border", "1px solid var(--lumo-contrast-20pct)")
+                .set("border-radius", "var(--lumo-border-radius)")
+                .set("padding", "1rem")
+                .set("background", "var(--lumo-contrast-5pct)")
+                .set("font-family", "monospace")
+                .set("font-size", "12px")
+                .set("white-space", "pre-wrap")
+                .set("max-height", "300px")
+                .set("overflow", "auto");
+        VerticalLayout activityLayout = new VerticalLayout(new H3("Recent activity"), activityBox);
+        activityLayout.setPadding(false);
+
+        layout.add(statusLayout, activityLayout);
+
+        // Populate immediately so we don't wait 5s for the next refresh tick.
+        updateDashboard();
+        updateActivity();
+
         return layout;
+    }
+
+    private void updateActivity() {
+        if (activityBox == null) return;
+        try {
+            List<ActivityFeed.Event> events = activityFeed.recent(30);
+            StringBuilder sb = new StringBuilder();
+            if (events.isEmpty()) {
+                sb.append("No activity yet. Submit a URL from the 'Add URLs' tab.");
+            }
+            for (ActivityFeed.Event ev : events) {
+                String stamp = DateTimeFormatter.ofPattern("HH:mm:ss")
+                        .format(ev.at().atZone(ZoneId.systemDefault()));
+                String icon = switch (ev.kind()) {
+                    case CRAWLED -> "✓";
+                    case REJECTED -> "✗";
+                    case ERROR -> "!";
+                };
+                sb.append(stamp).append(" ").append(icon).append(" ")
+                        .append(ev.url()).append("  ").append(ev.detail()).append('\n');
+            }
+            activityBox.setText(sb.toString());
+        } catch (Exception ignored) {}
     }
     
     private Component createAddUrlsContent() {
@@ -286,7 +338,7 @@ public class MainView extends VerticalLayout {
         try {
             crawlerService.addSeedUrl(url).join();
             singleUrlField.clear();
-            showNotification("URL added: " + url, false);
+            showNotification("Queued: " + url + " (domain trusted for this session)", false);
         } catch (Exception e) {
             showNotification("Error adding URL: " + e.getMessage(), true);
         }
@@ -466,11 +518,14 @@ public class MainView extends VerticalLayout {
     
     @Override
     protected void onAttach(AttachEvent attachEvent) {
-        // Auto-refresh dashboard every 5 seconds
+        // Auto-refresh dashboard every 3 seconds — status + activity feed.
         scheduler = new ScheduledThreadPoolExecutor(1);
         scheduler.scheduleAtFixedRate(() -> {
-            getUI().ifPresent(ui -> ui.access((Command) this::updateDashboard));
-        }, 5, 5, TimeUnit.SECONDS);
+            getUI().ifPresent(ui -> ui.access((Command) () -> {
+                updateDashboard();
+                updateActivity();
+            }));
+        }, 3, 3, TimeUnit.SECONDS);
     }
     
     @Override
