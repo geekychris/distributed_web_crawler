@@ -18,14 +18,21 @@ import com.vaadin.flow.component.radiobutton.RadioButtonGroup;
 import com.vaadin.flow.component.textfield.IntegerField;
 import com.vaadin.flow.component.textfield.TextArea;
 import com.vaadin.flow.component.textfield.TextField;
+import com.vaadin.flow.component.checkbox.Checkbox;
+import com.vaadin.flow.component.combobox.ComboBox;
 import com.vaadin.flow.data.renderer.ComponentRenderer;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 import com.vaadin.flow.server.Command;
 import com.webcrawler.model.CrawlJob;
+import com.webcrawler.model.Feed;
+import com.webcrawler.model.FeedPack;
 import com.webcrawler.service.ActivityFeed;
 import com.webcrawler.service.CrawlJobService;
 import com.webcrawler.service.CrawlerUIService;
+import com.webcrawler.service.FeedPackService;
+import com.webcrawler.service.FeedPoller;
+import com.webcrawler.service.FeedRepository;
 import com.webcrawler.service.ScopeService;
 import com.webcrawler.storage.StorageService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -51,6 +58,9 @@ public class MainView extends VerticalLayout {
     private final ActivityFeed activityFeed;
     private final CrawlJobService jobService;
     private final com.webcrawler.queue.UrlQueue urlQueue;
+    private final FeedRepository feedRepo;
+    private final FeedPackService feedPacks;
+    private final FeedPoller feedPoller;
 
     // Dashboard components
     private Button startStopButton;
@@ -72,12 +82,17 @@ public class MainView extends VerticalLayout {
     @Autowired
     public MainView(CrawlerUIService crawlerService, StorageService storageService,
                     ActivityFeed activityFeed, CrawlJobService jobService,
-                    com.webcrawler.queue.UrlQueue urlQueue) {
+                    com.webcrawler.queue.UrlQueue urlQueue,
+                    FeedRepository feedRepo, FeedPackService feedPacks,
+                    FeedPoller feedPoller) {
         this.crawlerService = crawlerService;
         this.storageService = storageService;
         this.activityFeed = activityFeed;
         this.jobService = jobService;
         this.urlQueue = urlQueue;
+        this.feedRepo = feedRepo;
+        this.feedPacks = feedPacks;
+        this.feedPoller = feedPoller;
         
         setSizeFull();
         setPadding(true);
@@ -90,8 +105,10 @@ public class MainView extends VerticalLayout {
         Tab dashboardTab = new Tab("Dashboard");
         Tab startCrawlTab = new Tab("Start a Crawl");
         Tab jobsTab = new Tab("Jobs");
+        Tab feedsTab = new Tab("Feeds");
+        Tab packsTab = new Tab("Feed Packs");
         Tab queryTab = new Tab("Query Database");
-        tabs.add(dashboardTab, startCrawlTab, jobsTab, queryTab);
+        tabs.add(dashboardTab, startCrawlTab, jobsTab, feedsTab, packsTab, queryTab);
 
         Div contentArea = new Div();
         contentArea.setSizeFull();
@@ -103,6 +120,8 @@ public class MainView extends VerticalLayout {
             if (selectedTab == dashboardTab) contentArea.add(createDashboardContent());
             else if (selectedTab == startCrawlTab) contentArea.add(createStartCrawlContent());
             else if (selectedTab == jobsTab) contentArea.add(createJobsContent());
+            else if (selectedTab == feedsTab) contentArea.add(createFeedsContent());
+            else if (selectedTab == packsTab) contentArea.add(createFeedPacksContent());
             else if (selectedTab == queryTab) contentArea.add(createQueryContent());
         });
 
@@ -425,7 +444,196 @@ public class MainView extends VerticalLayout {
     }
 
     private String renderBudget(int v) { return v < 0 ? "∞" : String.valueOf(v); }
-    
+
+    // -----------------------------------------------------------------
+    // Feeds tab
+    // -----------------------------------------------------------------
+
+    private Component createFeedsContent() {
+        VerticalLayout layout = new VerticalLayout();
+        layout.setSizeFull();
+        layout.setPadding(false);
+
+        Grid<Feed> grid = new Grid<>(Feed.class, false);
+
+        // -- Add form --
+        TextField urlField = new TextField("Feed URL");
+        urlField.setPlaceholder("https://example.com/feed.xml");
+        urlField.setWidthFull();
+        TextField titleField = new TextField("Title");
+        titleField.setWidth("22%");
+        TextField packField = new TextField("Pack");
+        packField.setPlaceholder("tech / news / …");
+        packField.setWidth("18%");
+        IntegerField intervalField = intField("Poll interval (s)", 900, 30, 24 * 3600);
+        intervalField.setWidth("18%");
+        Checkbox adaptive = new Checkbox("Adaptive backoff");
+        adaptive.setValue(true);
+        Checkbox follow = new Checkbox("Follow articles");
+        follow.setValue(false);
+        Button addButton = new Button("Subscribe", new Icon(VaadinIcon.PLUS_CIRCLE));
+        addButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+        addButton.addClickListener(e -> subscribeFeed(
+                urlField.getValue(), titleField.getValue(), packField.getValue(),
+                intervalField.getValue(), adaptive.getValue(), follow.getValue(), grid));
+
+        HorizontalLayout row1 = new HorizontalLayout(urlField);
+        row1.setWidthFull();
+        HorizontalLayout row2 = new HorizontalLayout(titleField, packField, intervalField, adaptive, follow, addButton);
+        row2.setWidthFull();
+        row2.setAlignItems(FlexComponent.Alignment.END);
+
+        // -- Grid --
+        grid.addColumn(f -> f.title() == null || f.title().isBlank() ? f.url() : f.title())
+                .setHeader("Title").setFlexGrow(2);
+        grid.addColumn(Feed::url).setHeader("URL").setFlexGrow(3);
+        grid.addColumn(f -> f.pack() == null ? "" : f.pack()).setHeader("Pack").setWidth("100px");
+        grid.addColumn(f -> f.status().name()).setHeader("Status").setWidth("100px");
+        grid.addColumn(f -> f.pollIntervalSeconds() + "s").setHeader("Interval").setWidth("100px");
+        grid.addColumn(f -> f.followArticles() ? "yes" : "no").setHeader("Follow").setWidth("90px");
+        grid.addColumn(f -> f.lastPolledAt() == null ? "never"
+                        : DateTimeFormatter.ofPattern("HH:mm:ss")
+                                .format(f.lastPolledAt().atZone(ZoneId.systemDefault())))
+                .setHeader("Last polled").setWidth("120px");
+        grid.addColumn(f -> f.consecutiveErrors() > 0
+                        ? "err×" + f.consecutiveErrors()
+                        : (f.consecutiveEmpty() > 0 ? "empty×" + f.consecutiveEmpty() : ""))
+                .setHeader("Streak").setWidth("110px");
+        grid.addColumn(new ComponentRenderer<>(feed -> {
+            HorizontalLayout btns = new HorizontalLayout();
+            Button pollNow = new Button("Poll", e -> {
+                try { feedPoller.poll(feed); refreshFeedsGrid(grid);
+                    showNotification("Polled " + feed.url(), false);
+                } catch (Exception ex) { showNotification("Poll failed: " + ex.getMessage(), true); }
+            });
+            Button pauseBtn = new Button(feed.status() == Feed.Status.PAUSED ? "Resume" : "Pause", e -> {
+                feedRepo.updateStatus(feed.feedId(),
+                        feed.status() == Feed.Status.PAUSED ? Feed.Status.ACTIVE : Feed.Status.PAUSED);
+                refreshFeedsGrid(grid);
+            });
+            Button deleteBtn = new Button("Delete", e -> {
+                feedRepo.delete(feed.feedId());
+                refreshFeedsGrid(grid);
+                showNotification("Deleted " + feed.url(), false);
+            });
+            deleteBtn.addThemeVariants(ButtonVariant.LUMO_ERROR, ButtonVariant.LUMO_SMALL);
+            pollNow.addThemeVariants(ButtonVariant.LUMO_SMALL);
+            pauseBtn.addThemeVariants(ButtonVariant.LUMO_SMALL);
+            btns.add(pollNow, pauseBtn, deleteBtn);
+            return btns;
+        })).setHeader("Actions").setWidth("240px");
+        grid.setSizeFull();
+
+        refreshFeedsGrid(grid);
+
+        Button refresh = new Button("Refresh", new Icon(VaadinIcon.REFRESH),
+                e -> refreshFeedsGrid(grid));
+
+        VerticalLayout form = new VerticalLayout(new H3("Subscribe to a feed"), row1, row2);
+        form.setPadding(true);
+        form.getStyle()
+                .set("border", "1px solid var(--lumo-contrast-20pct)")
+                .set("border-radius", "var(--lumo-border-radius)");
+
+        layout.add(form, new Hr(), refresh, grid);
+        return layout;
+    }
+
+    private void subscribeFeed(String url, String title, String pack, Integer interval,
+                               boolean adaptive, boolean follow, Grid<Feed> grid) {
+        if (url == null || url.isBlank()) {
+            showNotification("Feed URL is required", true);
+            return;
+        }
+        try {
+            java.time.Instant now = java.time.Instant.now();
+            Feed feed = new Feed(
+                    UUID.randomUUID(), url.trim(),
+                    title == null || title.isBlank() ? null : title.trim(),
+                    pack == null || pack.isBlank() ? null : pack.trim(),
+                    interval == null || interval < 30 ? 900 : interval,
+                    adaptive, follow, false,
+                    Feed.Status.ACTIVE, null, null, null,
+                    now, 0, 0, now, now);
+            feedRepo.create(feed);
+            refreshFeedsGrid(grid);
+            showNotification("Subscribed " + url + " — the poller will pick it up shortly", false);
+        } catch (Exception ex) {
+            showNotification("Subscribe failed: " + ex.getMessage(), true);
+        }
+    }
+
+    private void refreshFeedsGrid(Grid<Feed> grid) {
+        try { grid.setItems(feedRepo.listAll()); }
+        catch (Exception ex) { showNotification("Load feeds failed: " + ex.getMessage(), true); }
+    }
+
+    // -----------------------------------------------------------------
+    // Feed Packs tab
+    // -----------------------------------------------------------------
+
+    private Component createFeedPacksContent() {
+        VerticalLayout layout = new VerticalLayout();
+        layout.setSizeFull();
+        layout.setPadding(false);
+        layout.add(new H3("Curated feed packs"),
+                new Paragraph("Subscribing to a pack adds every feed in it "
+                        + "(idempotent — feeds already subscribed are skipped)."));
+
+        List<FeedPack> packs;
+        try { packs = feedPacks.listAll(); }
+        catch (Exception ex) {
+            showNotification("Load packs failed: " + ex.getMessage(), true);
+            return layout;
+        }
+
+        HorizontalLayout cards = new HorizontalLayout();
+        cards.setWidthFull();
+        cards.getStyle().set("flex-wrap", "wrap").set("gap", "1rem");
+
+        for (FeedPack pack : packs) {
+            VerticalLayout card = new VerticalLayout();
+            card.setWidth("280px");
+            card.getStyle()
+                    .set("border", "1px solid var(--lumo-contrast-20pct)")
+                    .set("border-radius", "var(--lumo-border-radius)")
+                    .set("padding", "1rem")
+                    .set("background", "var(--lumo-contrast-5pct)");
+            card.add(new H3(pack.name()));
+            if (pack.description() != null) card.add(new Paragraph(pack.description()));
+            card.add(new Span(pack.feeds().size() + " feed(s) in this pack"));
+            Div feedList = new Div();
+            feedList.getStyle().set("font-size", "12px")
+                    .set("color", "var(--lumo-secondary-text-color)");
+            StringBuilder sb = new StringBuilder();
+            for (var m : pack.feeds()) {
+                sb.append("• ").append(m.title() == null ? m.url() : m.title()).append('\n');
+            }
+            feedList.setText(sb.toString());
+            feedList.getStyle().set("white-space", "pre-wrap");
+            card.add(feedList);
+
+            Button subscribe = new Button("Subscribe to '" + pack.name() + "'",
+                    new Icon(VaadinIcon.RSS));
+            subscribe.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+            subscribe.addClickListener(e -> {
+                try {
+                    List<Feed> created = feedPacks.subscribeAll(pack.id());
+                    showNotification(created.size() + " new feed(s) subscribed from '"
+                            + pack.name() + "' (" + (pack.feeds().size() - created.size())
+                            + " already present)", false);
+                } catch (Exception ex) {
+                    showNotification("Subscribe failed: " + ex.getMessage(), true);
+                }
+            });
+            card.add(subscribe);
+            cards.add(card);
+        }
+
+        layout.add(cards);
+        return layout;
+    }
+
     private Component createQueryContent() {
         VerticalLayout layout = new VerticalLayout();
         layout.setSizeFull();
