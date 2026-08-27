@@ -16,6 +16,7 @@ public record CrawlJob(
     Set<String> seedUrls,
     Set<String> allowedDomains,
     Set<String> excludePatterns,
+    int maxDepth,
     int maxPages,
     int maxPagesPerDomain,
     int maxDomains,
@@ -26,6 +27,6 @@ public record CrawlJob(
 
     public CrawlJob withStatus(Status newStatus) {
         return new CrawlJob(jobId, name, newStatus, seedUrls, allowedDomains, excludePatterns,
-                maxPages, maxPagesPerDomain, maxDomains, createdAt, Instant.now());
+                maxDepth, maxPages, maxPagesPerDomain, maxDomains, createdAt, Instant.now());
     }
 }

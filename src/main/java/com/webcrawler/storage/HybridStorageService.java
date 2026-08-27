@@ -68,9 +68,8 @@ public class HybridStorageService implements StorageService {
                 content.contentHash().substring(0, 2),
                 content.contentHash());
 
-        String contentType = content.headers() == null
-                ? "text/html; charset=utf-8"
-                : content.headers().getOrDefault("Content-Type", "text/html; charset=utf-8");
+        String contentType = lookupHeaderIgnoreCase(content.headers(), "Content-Type",
+                "text/html; charset=utf-8");
 
         // Sequence: S3 first, THEN Cassandra. On Cassandra failure delete the
         // blob to avoid orphans. On S3 failure Cassandra never runs.
@@ -202,6 +201,21 @@ public class HybridStorageService implements StorageService {
                     Row row = rs.one();
                     return row != null ? row.getLong(0) : 0L;
                 });
+    }
+
+    /**
+     * HTTP headers are case-insensitive per RFC 7230. Case can drift depending
+     * on the client (Jsoup normalises differently from HttpClient).
+     */
+    public static String lookupHeaderIgnoreCase(java.util.Map<String, String> headers,
+                                                String name, String defaultValue) {
+        if (headers == null || headers.isEmpty()) return defaultValue;
+        String direct = headers.get(name);
+        if (direct != null) return direct;
+        for (var e : headers.entrySet()) {
+            if (e.getKey() != null && e.getKey().equalsIgnoreCase(name)) return e.getValue();
+        }
+        return defaultValue;
     }
 
     private PageMetadata rowToMetadata(Row row) {

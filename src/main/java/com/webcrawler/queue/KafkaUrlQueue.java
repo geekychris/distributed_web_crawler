@@ -83,10 +83,14 @@ public class KafkaUrlQueue implements UrlQueue {
     @Override
     @PreDestroy
     public synchronized void close() {
+        // Signal each consumer to break out of poll() from OUR thread rather
+        // than closing the consumer here — KafkaConsumer.close() is not safe
+        // to call from a thread other than the poll thread. The crawl-loop
+        // catches WakeupException and closes its consumer via
+        // try-with-resources.
         for (KafkaBatchConsumer bc : new ArrayList<>(openConsumers)) {
-            try { bc.close(); } catch (Exception e) { logger.warn("Consumer close failed", e); }
+            try { bc.wakeup(); } catch (Exception e) { logger.warn("Consumer wakeup failed", e); }
         }
-        openConsumers.clear();
         try { producer.close(Duration.ofSeconds(10)); } catch (Exception e) { logger.warn("Producer close failed", e); }
     }
 
@@ -135,7 +139,7 @@ public class KafkaUrlQueue implements UrlQueue {
         public Batch poll(Duration timeout) {
             ConsumerRecords<String, String> records = consumer.poll(timeout);
             if (records.isEmpty()) {
-                return new Batch(List.of(), () -> {});
+                return new Batch(List.of(), () -> {}, false);
             }
             List<CrawlRequest> requests = new ArrayList<>(records.count());
             Map<TopicPartition, OffsetAndMetadata> offsets = new HashMap<>();
@@ -151,7 +155,11 @@ public class KafkaUrlQueue implements UrlQueue {
                         new OffsetAndMetadata(record.offset() + 1),
                         (a, b) -> a.offset() >= b.offset() ? a : b);
             }
-            return new Batch(requests, () -> consumer.commitSync(offsets));
+            return new Batch(requests, () -> consumer.commitSync(offsets), true);
+        }
+
+        void wakeup() {
+            consumer.wakeup();
         }
 
         @Override

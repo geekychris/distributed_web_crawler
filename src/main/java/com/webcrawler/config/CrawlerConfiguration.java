@@ -76,11 +76,25 @@ public class CrawlerConfiguration {
 
     private void applySchema(CqlSession session) {
         String schema = readClasspathResource("schema.cql");
-        // Skip any USE statement — we'll operate on fully-qualified names or rebind later.
         for (String raw : schema.split(";")) {
             String stmt = raw.strip();
             if (stmt.isEmpty() || stmt.regionMatches(true, 0, "USE ", 0, 4)) continue;
-            session.execute(stmt);
+            try {
+                session.execute(stmt);
+            } catch (Exception e) {
+                // Idempotent-migration tolerance: some Cassandra versions
+                // reject "ALTER TABLE ADD" of an already-existing column with
+                // the exact "IF NOT EXISTS" grammar, and CREATE INDEX / TABLE
+                // already have IF NOT EXISTS. Log and continue if the error
+                // reads like an already-exists condition.
+                String msg = e.getMessage() == null ? "" : e.getMessage().toLowerCase();
+                if (msg.contains("already exists") || msg.contains("conflicts with")) {
+                    logger.debug("Schema statement skipped ({}): {}", e.getMessage(),
+                            stmt.length() > 80 ? stmt.substring(0, 80) + "..." : stmt);
+                } else {
+                    throw e;
+                }
+            }
         }
         logger.info("Cassandra schema applied");
     }

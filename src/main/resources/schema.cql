@@ -13,6 +13,10 @@ CREATE TABLE IF NOT EXISTS crawler.pages (
     job_id uuid
 );
 
+-- Idempotent migration for installs that predate job_id / max_depth.
+-- Cassandra 4.x supports "IF NOT EXISTS" on ALTER TABLE ADD.
+ALTER TABLE crawler.pages ADD IF NOT EXISTS job_id uuid;
+
 CREATE INDEX IF NOT EXISTS idx_content_hash ON crawler.pages(content_hash);
 CREATE INDEX IF NOT EXISTS idx_job_id ON crawler.pages(job_id);
 
@@ -36,12 +40,16 @@ CREATE TABLE IF NOT EXISTS crawler.crawl_jobs (
     seed_urls set<text>,
     allowed_domains set<text>,
     exclude_patterns set<text>,
+    max_depth int,
     max_pages int,
     max_pages_per_domain int,
     max_domains int,
     created_at timestamp,
     updated_at timestamp
 );
+
+-- Idempotent migration for installs that predate max_depth on crawl_jobs.
+ALTER TABLE crawler.crawl_jobs ADD IF NOT EXISTS max_depth int;
 
 CREATE TABLE IF NOT EXISTS crawler.crawl_job_progress (
     job_id uuid,

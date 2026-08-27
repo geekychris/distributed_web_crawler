@@ -48,8 +48,8 @@ public class CrawlJobService {
         this.session = session;
         this.insertJob = session.prepare(
                 "INSERT INTO crawl_jobs (job_id, name, status, seed_urls, allowed_domains, "
-              + "exclude_patterns, max_pages, max_pages_per_domain, max_domains, "
-              + "created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)");
+              + "exclude_patterns, max_depth, max_pages, max_pages_per_domain, max_domains, "
+              + "created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)");
         this.selectJob = session.prepare("SELECT * FROM crawl_jobs WHERE job_id = ?");
         this.selectAllJobs = session.prepare("SELECT * FROM crawl_jobs");
         this.updateStatus = session.prepare(
@@ -69,19 +69,19 @@ public class CrawlJobService {
     }
 
     public CrawlJob create(String name, Set<String> seedUrls, Set<String> allowedDomains,
-                           Set<String> excludePatterns, int maxPages, int maxPagesPerDomain,
-                           int maxDomains) {
+                           Set<String> excludePatterns, int maxDepth, int maxPages,
+                           int maxPagesPerDomain, int maxDomains) {
         Instant now = Instant.now();
         CrawlJob job = new CrawlJob(
                 UUID.randomUUID(), name, CrawlJob.Status.PENDING,
                 seedUrls == null ? Set.of() : Set.copyOf(seedUrls),
                 allowedDomains == null ? Set.of() : Set.copyOf(allowedDomains),
                 excludePatterns == null ? Set.of() : Set.copyOf(excludePatterns),
-                maxPages, maxPagesPerDomain, maxDomains, now, now);
+                maxDepth, maxPages, maxPagesPerDomain, maxDomains, now, now);
         session.execute(insertJob.bind(
                 job.jobId(), job.name(), job.status().name(),
                 job.seedUrls(), job.allowedDomains(), job.excludePatterns(),
-                job.maxPages(), job.maxPagesPerDomain(), job.maxDomains(),
+                job.maxDepth(), job.maxPages(), job.maxPagesPerDomain(), job.maxDomains(),
                 job.createdAt(), job.updatedAt()));
         logger.info("Created crawl job {} '{}' with {} seed(s)", job.jobId(), name, job.seedUrls().size());
         return job;
@@ -107,33 +107,55 @@ public class CrawlJobService {
     }
 
     /**
-     * Attempt to admit a page-crawl for the given job+domain. Returns true if
-     * admitted (and increments counters); false if any budget would be
-     * exceeded. jobId may be null (legacy / no-job requests) — those always
-     * pass.
+     * Check whether a page-crawl would be admitted for the given job+domain
+     * WITHOUT touching the counters. Callers should then perform the fetch,
+     * and only invoke {@link #recordCrawl(UUID, String)} after the page has
+     * been successfully stored — that way non-2xx, duplicate-content, and
+     * IOException paths do not consume budget.
+     *
+     * jobId=null (legacy / no-job requests) always passes.
      */
-    public boolean admit(UUID jobId, String domain) {
+    public boolean canAdmit(UUID jobId, String domain) {
         if (jobId == null) return true;
         Optional<CrawlJob> maybe = get(jobId);
         if (maybe.isEmpty()) return false;
         CrawlJob job = maybe.get();
         if (job.status() != CrawlJob.Status.RUNNING) return false;
 
-        long totalCrawled = totalCrawled(jobId);
-        if (job.maxPages() > 0 && totalCrawled >= job.maxPages()) return false;
+        if (job.maxPages() > 0 && totalCrawled(jobId) >= job.maxPages()) return false;
 
         long domainCrawled = domainCrawled(jobId, domain);
         if (job.maxPagesPerDomain() > 0 && domainCrawled >= job.maxPagesPerDomain()) return false;
 
-        if (job.maxDomains() > 0 && domainCrawled == 0) {
-            long distinctDomains = distinctDomains(jobId);
-            if (distinctDomains >= job.maxDomains()) return false;
-        }
+        if (job.maxDomains() > 0 && domainCrawled == 0
+                && distinctDomains(jobId) >= job.maxDomains()) return false;
 
+        return true;
+    }
+
+    /**
+     * Record a successful crawl — increments the per-domain page counter and
+     * marks the domain as seen for the job. Idempotent-ish: repeated calls
+     * increment the counter multiple times, so call exactly once per stored
+     * page.
+     */
+    public void recordCrawl(UUID jobId, String domain) {
+        if (jobId == null) return;
+        long domainCrawled = domainCrawled(jobId, domain);
         session.execute(incrementDomainCounter.bind(jobId, domain));
         if (domainCrawled == 0) {
             session.execute(insertJobDomain.bind(jobId, domain));
         }
+    }
+
+    /**
+     * @deprecated Use {@link #canAdmit(UUID, String)} then {@link #recordCrawl(UUID, String)}
+     *             so budgets don't decrement on failed / duplicate crawls.
+     */
+    @Deprecated
+    public boolean admit(UUID jobId, String domain) {
+        if (!canAdmit(jobId, domain)) return false;
+        recordCrawl(jobId, domain);
         return true;
     }
 
@@ -163,6 +185,7 @@ public class CrawlJobService {
                 new HashSet<>(r.getSet("seed_urls", String.class)),
                 new HashSet<>(r.getSet("allowed_domains", String.class)),
                 new HashSet<>(r.getSet("exclude_patterns", String.class)),
+                r.isNull("max_depth") ? -1 : r.getInt("max_depth"),
                 r.getInt("max_pages"),
                 r.getInt("max_pages_per_domain"),
                 r.getInt("max_domains"),

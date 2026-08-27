@@ -37,6 +37,7 @@ public class JobController {
             Set<String> seedUrls,
             Set<String> allowedDomains,
             Set<String> excludePatterns,
+            Integer maxDepth,
             Integer maxPages,
             Integer maxPagesPerDomain,
             Integer maxDomains) {}
@@ -49,6 +50,7 @@ public class JobController {
                 req.seedUrls(),
                 req.allowedDomains(),
                 req.excludePatterns(),
+                req.maxDepth() == null ? -1 : req.maxDepth(),
                 req.maxPages() == null ? -1 : req.maxPages(),
                 req.maxPagesPerDomain() == null ? -1 : req.maxPagesPerDomain(),
                 req.maxDomains() == null ? -1 : req.maxDomains());
@@ -92,6 +94,7 @@ public class JobController {
     @PostMapping("/{jobId}/pause")
     @Operation(summary = "Pause a running job — new work is not admitted")
     public ResponseEntity<Void> pause(@PathVariable UUID jobId) {
+        if (jobs.get(jobId).isEmpty()) return ResponseEntity.notFound().build();
         jobs.updateStatus(jobId, CrawlJob.Status.PAUSED);
         return ResponseEntity.noContent().build();
     }
@@ -99,6 +102,7 @@ public class JobController {
     @PostMapping("/{jobId}/resume")
     @Operation(summary = "Resume a paused job")
     public ResponseEntity<Void> resume(@PathVariable UUID jobId) {
+        if (jobs.get(jobId).isEmpty()) return ResponseEntity.notFound().build();
         jobs.updateStatus(jobId, CrawlJob.Status.RUNNING);
         return ResponseEntity.noContent().build();
     }
@@ -106,6 +110,7 @@ public class JobController {
     @PostMapping("/{jobId}/cancel")
     @Operation(summary = "Cancel a job — outstanding enqueued URLs will be rejected")
     public ResponseEntity<Void> cancel(@PathVariable UUID jobId) {
+        if (jobs.get(jobId).isEmpty()) return ResponseEntity.notFound().build();
         jobs.updateStatus(jobId, CrawlJob.Status.CANCELLED);
         return ResponseEntity.noContent().build();
     }

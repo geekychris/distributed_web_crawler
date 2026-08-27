@@ -20,8 +20,14 @@ public interface BatchConsumer extends AutoCloseable {
     @Override
     void close();
 
-    /** Records returned by one poll, plus a commit hook tied to those records' offsets. */
-    record Batch(List<CrawlRequest> requests, Runnable commit) {
+    /**
+     * Records returned by one poll, plus a commit hook tied to those records'
+     * offsets. {@link #hasRecords()} distinguishes "poll returned no records"
+     * (nothing to commit) from "poll returned records that all failed to
+     * parse" (still commit, otherwise we'd re-poll the broken records
+     * forever).
+     */
+    record Batch(List<CrawlRequest> requests, Runnable commit, boolean hasRecords) {
         public boolean isEmpty() { return requests.isEmpty(); }
         public int size() { return requests.size(); }
     }

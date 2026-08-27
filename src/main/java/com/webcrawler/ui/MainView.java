@@ -182,7 +182,7 @@ public class MainView extends VerticalLayout {
             List<ActivityFeed.Event> events = activityFeed.recent(30);
             StringBuilder sb = new StringBuilder();
             if (events.isEmpty()) {
-                sb.append("No activity yet. Submit a URL from the 'Add URLs' tab.");
+                sb.append("No activity yet. Submit a URL from the 'Start a Crawl' tab.");
             }
             for (ActivityFeed.Event ev : events) {
                 String stamp = DateTimeFormatter.ofPattern("HH:mm:ss")
@@ -290,7 +290,8 @@ public class MainView extends VerticalLayout {
                 return;
             }
             String jobName = (name == null || name.isBlank())
-                    ? "crawl-" + Instant.now().toString().substring(11, 19)
+                    ? "crawl-" + DateTimeFormatter.ofPattern("HH:mm:ss")
+                            .format(Instant.now().atZone(ZoneId.systemDefault()))
                     : name.trim();
 
             Set<String> allowed = new java.util.LinkedHashSet<>(parseLines(includes));
@@ -313,17 +314,27 @@ public class MainView extends VerticalLayout {
 
             CrawlJob job = jobService.create(
                     jobName, seeds, allowed, new java.util.LinkedHashSet<>(parseLines(excludes)),
+                    maxDepth == null ? -1 : maxDepth,
                     maxPages == null ? -1 : maxPages,
                     maxPagesPerDomain == null ? -1 : maxPagesPerDomain,
                     maxDomains == null ? -1 : maxDomains);
 
             jobService.updateStatus(job.jobId(), CrawlJob.Status.RUNNING);
+            List<java.util.concurrent.CompletableFuture<Void>> enqueues = new java.util.ArrayList<>();
             for (String seed : seeds) {
-                urlQueue.enqueue(new com.webcrawler.model.CrawlRequest(
-                        seed, 0, null, Instant.now(), 1, 0, null, job.jobId()));
+                enqueues.add(urlQueue.enqueue(new com.webcrawler.model.CrawlRequest(
+                        seed, 0, null, Instant.now(), 1, 0, null, job.jobId())));
             }
-            showNotification("Started job '" + jobName + "' with " + seeds.size() + " seed(s) — see Jobs tab",
-                    false);
+            java.util.concurrent.CompletableFuture.allOf(
+                            enqueues.toArray(new java.util.concurrent.CompletableFuture[0]))
+                    .whenComplete((v, err) -> getUI().ifPresent(ui -> ui.access(() -> {
+                        if (err != null) {
+                            showNotification("Some seeds failed to enqueue: " + err.getMessage(), true);
+                        } else {
+                            showNotification("Started job '" + jobName + "' with " + seeds.size()
+                                    + " seed(s) — see Jobs tab", false);
+                        }
+                    })));
         } catch (Exception ex) {
             showNotification("Failed to start crawl: " + ex.getMessage(), true);
         }

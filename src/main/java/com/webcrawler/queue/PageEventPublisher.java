@@ -70,8 +70,9 @@ public class PageEventPublisher {
             data.put("s3_bucket", s3Bucket);
             data.put("s3_endpoint", s3Endpoint);
             data.put("http_status", page.httpStatus());
-            data.put("content_type", page.headers() == null
-                    ? null : page.headers().getOrDefault("Content-Type", null));
+            data.put("content_type",
+                    com.webcrawler.storage.HybridStorageService.lookupHeaderIgnoreCase(
+                            page.headers(), "Content-Type", null));
             data.put("content_length", page.content() == null ? 0 : page.content().length());
             data.put("fetched_at", page.fetchTime());
             data.put("discovered_links_count", page.links() == null ? 0 : page.links().size());

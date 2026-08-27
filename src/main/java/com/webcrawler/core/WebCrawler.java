@@ -51,7 +51,10 @@ public class WebCrawler {
     private final ScheduledExecutorService retryScheduler;
     private final ExecutorService workerExecutor;
 
-    private final Map<String, Instant> lastCrawled = new ConcurrentHashMap<>();
+    /** Next allowed fetch time per host — atomically reserved before sleeping. */
+    private final Map<String, Instant> nextFetchAt = new ConcurrentHashMap<>();
+    /** Per-host lock so politeness reservation is serialized within one process. */
+    private final Map<String, Object> hostLocks = new ConcurrentHashMap<>();
     private final Map<String, SimpleRobotRules> robotsCache = new ConcurrentHashMap<>();
     private final Set<String> sitemapsSeen = ConcurrentHashMap.newKeySet();
 
@@ -99,13 +102,18 @@ public class WebCrawler {
         }
         isRunning = true;
         logger.info("Starting WebCrawler");
-
-        seedUrlQueue();
-
-        int workerCount = Math.max(1, config.maxConcurrentRequests() / 5);
-        logger.info("Starting {} crawl worker(s)", workerCount);
-        for (int i = 0; i < workerCount; i++) {
-            workerExecutor.execute(this::crawlLoop);
+        try {
+            seedUrlQueue();
+            int workerCount = Math.max(1, config.maxConcurrentRequests() / 5);
+            logger.info("Starting {} crawl worker(s)", workerCount);
+            for (int i = 0; i < workerCount; i++) {
+                workerExecutor.execute(this::crawlLoop);
+            }
+        } catch (RuntimeException e) {
+            // Roll back the running flag so a subsequent start() attempt can
+            // retry initialisation.
+            isRunning = false;
+            throw e;
         }
     }
 
@@ -148,7 +156,14 @@ public class WebCrawler {
             while (isRunning) {
                 try {
                     BatchConsumer.Batch batch = consumer.poll(config.pollTimeout());
-                    if (batch.isEmpty()) continue;
+                    // No records → no offsets to commit; loop again.
+                    if (!batch.hasRecords()) continue;
+                    if (batch.isEmpty()) {
+                        // All records failed to parse — commit anyway so we
+                        // don't re-poll broken messages forever.
+                        batch.commit().run();
+                        continue;
+                    }
 
                     logger.info("Processing batch of {} URL(s)", batch.size());
                     processBatch(batch.requests());
@@ -223,28 +238,23 @@ public class WebCrawler {
                         "domain '" + domain + "' not in scope (add via /api/crawler/url or the Add URLs tab to trust it)");
             }
 
-            // Politeness: sleep for the remaining delay rather than requeue.
-            // Requeue-with-retry-increment eats legitimate URLs when a batch
-            // is dense on one domain.
-            Instant lastVisit = lastCrawled.get(domain);
-            if (lastVisit != null) {
-                Duration since = Duration.between(lastVisit, Instant.now());
-                if (since.compareTo(config.crawlDelay()) < 0) {
-                    Duration remaining = config.crawlDelay().minus(since);
-                    try {
-                        Thread.sleep(remaining.toMillis());
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        return CrawlDecision.reject("interrupted during politeness delay");
-                    }
-                }
-            }
-
             if (config.respectRobotsTxt()) {
-                SimpleRobotRules rules = getRobotsRules(url);
+                SimpleRobotRules rules = getRobotsRules(url, request.jobId());
                 if (!rules.isAllowed(request.url())) {
                     return CrawlDecision.reject("robots.txt disallows");
                 }
+            }
+
+            // Politeness: atomically reserve the next allowed fetch time for
+            // this host BEFORE sleeping. Two concurrent tasks targeting the
+            // same host used to both read the same lastVisit, sleep the same
+            // duration, and fire simultaneously — this serialises them via
+            // per-host reservations spaced by crawlDelay.
+            try {
+                reserveAndAwaitPoliteness(domain);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                return CrawlDecision.reject("interrupted during politeness delay");
             }
 
             return CrawlDecision.crawl();
@@ -252,6 +262,24 @@ public class WebCrawler {
             logger.warn("Validation failed for {}: {}", request.url(), e.getMessage());
             return CrawlDecision.reject("validation error: " + e.getMessage());
         }
+    }
+
+    /**
+     * Atomically reserve the next-allowed fetch time for the host, then sleep
+     * until it. Guarantees that no two concurrent tasks for the same host
+     * fire less than crawlDelay apart within one process.
+     */
+    private void reserveAndAwaitPoliteness(String domain) throws InterruptedException {
+        Object lock = hostLocks.computeIfAbsent(domain, k -> new Object());
+        Instant fireAt;
+        synchronized (lock) {
+            Instant now = Instant.now();
+            Instant scheduled = nextFetchAt.getOrDefault(domain, now);
+            fireAt = scheduled.isAfter(now) ? scheduled : now;
+            nextFetchAt.put(domain, fireAt.plus(config.crawlDelay()));
+        }
+        long waitMs = Duration.between(Instant.now(), fireAt).toMillis();
+        if (waitMs > 0) Thread.sleep(waitMs);
     }
 
     private void scheduleRetry(CrawlRequest originalRequest, Instant retryAt) {
@@ -276,14 +304,13 @@ public class WebCrawler {
             URL url = new URL(request.url());
             String domain = url.getHost();
 
-            // Job budget: reject if the job has hit its cap. Passes for
-            // no-job (legacy) requests.
-            if (!jobs.admit(request.jobId(), domain)) {
+            // Job budget: check WITHOUT touching counters. Non-2xx pages,
+            // duplicate content, and IOException paths must not consume
+            // budget — we record the crawl only after a successful store.
+            if (!jobs.canAdmit(request.jobId(), domain)) {
                 logger.info("Job {} rejected {} (budget or status)", request.jobId(), request.url());
                 return;
             }
-
-            lastCrawled.put(domain, Instant.now());
 
             Connection.Response response = Jsoup.connect(request.url())
                     .userAgent(config.userAgent())
@@ -344,6 +371,9 @@ public class WebCrawler {
             storageService.store(pageContent)
                     .orTimeout(30, TimeUnit.SECONDS)
                     .join();
+
+            // Only now do we consume budget — the page really landed.
+            jobs.recordCrawl(request.jobId(), domain);
 
             activity.crawled(request.url(), status, discoveredLinks.size(), linksToFollow.size());
 
@@ -417,12 +447,17 @@ public class WebCrawler {
         }
     }
 
-    private SimpleRobotRules getRobotsRules(URL url) {
+    /**
+     * Cached per host — the robots rules themselves don't depend on the
+     * calling job. jobId is only propagated so sitemap-discovered URLs
+     * carry the correct job attribution.
+     */
+    private SimpleRobotRules getRobotsRules(URL url, java.util.UUID jobId) {
         String key = url.getProtocol() + "://" + url.getHost();
-        return robotsCache.computeIfAbsent(key, k -> fetchRobots(url));
+        return robotsCache.computeIfAbsent(key, k -> fetchRobots(url, jobId));
     }
 
-    private SimpleRobotRules fetchRobots(URL url) {
+    private SimpleRobotRules fetchRobots(URL url, java.util.UUID jobId) {
         String robotsUrl = url.getProtocol() + "://" + url.getHost() + "/robots.txt";
         try {
             HttpRequest req = HttpRequest.newBuilder()
@@ -435,7 +470,7 @@ public class WebCrawler {
             SimpleRobotRules rules = robotsParser.parseContent(
                     robotsUrl, resp.body(), "text/plain", List.of(config.userAgent()));
             if (config.discoverSitemaps()) {
-                rules.getSitemaps().forEach(sm -> enqueueSitemap(sm, url));
+                rules.getSitemaps().forEach(sm -> enqueueSitemap(sm, url, jobId));
             }
             return rules;
         } catch (Exception e) {
@@ -444,7 +479,7 @@ public class WebCrawler {
         }
     }
 
-    private void enqueueSitemap(String sitemapUrl, URL originatingPage) {
+    private void enqueueSitemap(String sitemapUrl, URL originatingPage, java.util.UUID jobId) {
         String normalized = normalize(sitemapUrl);
         if (normalized == null || !sitemapsSeen.add(normalized)) return;
         // Fire-and-forget on the fetch executor — sitemap parsing is
@@ -465,7 +500,7 @@ public class WebCrawler {
                         String loc = normalize(url.getUrl().toString());
                         if (loc == null) continue;
                         urlQueue.enqueue(new CrawlRequest(
-                                loc, 0, originatingPage.toString(), Instant.now(), 1, 0, null, null));
+                                loc, 0, originatingPage.toString(), Instant.now(), 1, 0, null, jobId));
                     }
                     logger.info("Enqueued {} URLs from sitemap {}", sm.getSiteMapUrls().size(), normalized);
                 }
@@ -487,9 +522,12 @@ public class WebCrawler {
     public void destroy() {
         logger.info("Destroying WebCrawler");
         stop();
-        shutdown(fetchExecutor, "fetchExecutor", 30);
-        shutdown(retryScheduler, "retryScheduler", 10);
+        // Workers first so no new fetches are submitted while we tear down
+        // the fetch executor. Retry scheduler next (nothing else feeds it).
+        // Fetch executor last so in-flight fetches get their timeout window.
         shutdown(workerExecutor, "workerExecutor", 30);
+        shutdown(retryScheduler, "retryScheduler", 10);
+        shutdown(fetchExecutor, "fetchExecutor", 30);
     }
 
     private static void shutdown(ExecutorService es, String name, long timeoutSec) {

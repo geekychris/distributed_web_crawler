@@ -39,7 +39,7 @@ public class CrawlerController {
     @Operation(summary = "Recent crawl activity (in-memory ring buffer)")
     public ResponseEntity<List<ActivityFeed.Event>> activity(
             @RequestParam(defaultValue = "50") int limit) {
-        return ResponseEntity.ok(activity.recent(limit));
+        return ResponseEntity.ok(activity.recent(Math.max(0, limit)));
     }
 
     @GetMapping("/scope")
