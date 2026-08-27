@@ -54,7 +54,9 @@ public class FeedController {
                 Boolean.TRUE.equals(req.storeFullContent()),
                 Feed.Status.ACTIVE, null, null, null,
                 // Poll immediately on next tick.
-                now, 0, now, now);
+                now,
+                /*consecutiveErrors*/ 0, /*consecutiveEmpty*/ 0,
+                now, now);
         feeds.create(feed);
         return ResponseEntity.ok(feed);
     }

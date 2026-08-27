@@ -207,6 +207,51 @@ print(n)')
     fi
 fi
 
+section "Follow-articles pipeline"
+# Subscribe to a small RSS feed with follow_articles=true, then verify that
+# after the poll fires we see page CloudEvents whose source_feed_item_id
+# points back at a feed item we just persisted.
+FOLLOW_JSON=$(curl -sS --max-time 30 -X POST "$HOST/api/feeds" \
+    -H 'Content-Type: application/json' \
+    -d '{"url":"https://news.ycombinator.com/rss",
+         "title":"HN follow","pack":"tech",
+         "pollIntervalSeconds":900,
+         "followArticles":true}')
+FOLLOW_ID=$(printf '%s' "$FOLLOW_JSON" | python3 -c 'import json,sys;print(json.load(sys.stdin)["feedId"])' 2>/dev/null)
+if [ -n "$FOLLOW_ID" ] && [ "$FOLLOW_ID" != "null" ]; then
+    printf '  ok  follow-articles feed subscribed — feedId=%s\n' "$FOLLOW_ID"; pass=$((pass+1))
+    curl -sS -X POST "$HOST/api/feeds/$FOLLOW_ID/poll" >/dev/null
+
+    printf '  waiting up to 90s for source_feed_item_id in page CloudEvents…\n'
+    deadline=$(($(date +%s) + 90))
+    follow_hits=0
+    while :; do
+        follow_hits=$(docker exec "$KAFKA_CTR" \
+            kafka-console-consumer --bootstrap-server "$KAFKA_BOOT" \
+            --topic crawler.pages.v1 --from-beginning \
+            --max-messages 500 --timeout-ms 3000 2>/dev/null \
+          | python3 -c 'import json,sys
+n=0
+for l in sys.stdin:
+    l=l.strip()
+    if not l: continue
+    try:
+        d=json.loads(l).get("data",{})
+        if d.get("source_feed_item_id"): n+=1
+    except: pass
+print(n)')
+        [ -n "$follow_hits" ] && [ "$follow_hits" -gt 0 ] && break
+        [ "$(date +%s)" -ge $deadline ] && break
+        sleep 5
+    done
+    if [ -n "$follow_hits" ] && [ "$follow_hits" -gt 0 ]; then
+        printf '  ok  %s page CloudEvent(s) carry source_feed_item_id back to a feed item\n' "$follow_hits"
+        pass=$((pass+1))
+    else
+        printf '  WARN no page CloudEvents with source_feed_item_id (feed items may still be queued)\n'
+    fi
+fi
+
 printf '\n----------\n'
 printf 'passed: %d   failed: %d\n' "$pass" "$fail"
 if [ $fail -gt 0 ]; then

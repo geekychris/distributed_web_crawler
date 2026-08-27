@@ -42,12 +42,12 @@ public class FeedRepository {
         this.insertFeed = session.prepare(
                 "INSERT INTO feeds (feed_id, url, title, pack, poll_interval_seconds, adaptive, "
               + "follow_articles, store_full_content, status, etag, last_modified, "
-              + "last_polled_at, next_poll_at, consecutive_errors, created_at, updated_at) "
-              + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+              + "last_polled_at, next_poll_at, consecutive_errors, consecutive_empty, "
+              + "created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
         this.updateFeedPoll = session.prepare(
                 "UPDATE feeds SET last_polled_at = ?, next_poll_at = ?, etag = ?, "
-              + "last_modified = ?, consecutive_errors = ?, status = ?, updated_at = ? "
-              + "WHERE feed_id = ?");
+              + "last_modified = ?, consecutive_errors = ?, consecutive_empty = ?, "
+              + "status = ?, updated_at = ? WHERE feed_id = ?");
         this.updateFeedStatus = session.prepare(
                 "UPDATE feeds SET status = ?, updated_at = ? WHERE feed_id = ?");
         this.selectFeed = session.prepare("SELECT * FROM feeds WHERE feed_id = ?");
@@ -72,7 +72,8 @@ public class FeedRepository {
                 feed.pollIntervalSeconds(), feed.adaptive(), feed.followArticles(),
                 feed.storeFullContent(), feed.status().name(),
                 feed.etag(), feed.lastModified(),
-                feed.lastPolledAt(), feed.nextPollAt(), feed.consecutiveErrors(),
+                feed.lastPolledAt(), feed.nextPollAt(),
+                feed.consecutiveErrors(), feed.consecutiveEmpty(),
                 feed.createdAt(), feed.updatedAt()));
         return feed;
     }
@@ -91,7 +92,8 @@ public class FeedRepository {
     public void updatePollResult(Feed feed) {
         session.execute(updateFeedPoll.bind(
                 feed.lastPolledAt(), feed.nextPollAt(), feed.etag(), feed.lastModified(),
-                feed.consecutiveErrors(), feed.status().name(), Instant.now(),
+                feed.consecutiveErrors(), feed.consecutiveEmpty(),
+                feed.status().name(), Instant.now(),
                 feed.feedId()));
     }
 
@@ -149,6 +151,7 @@ public class FeedRepository {
                 r.getInstant("last_polled_at"),
                 r.getInstant("next_poll_at"),
                 r.isNull("consecutive_errors") ? 0 : r.getInt("consecutive_errors"),
+                r.isNull("consecutive_empty") ? 0 : r.getInt("consecutive_empty"),
                 r.getInstant("created_at"),
                 r.getInstant("updated_at"));
     }

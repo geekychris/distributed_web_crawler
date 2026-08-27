@@ -352,6 +352,8 @@ public class WebCrawler {
             metadata.put("links_discovered", String.valueOf(discoveredLinks.size()));
             metadata.put("links_followed", String.valueOf(linksToFollow.size()));
             if (request.parentUrl() != null) metadata.put("parent_url", request.parentUrl());
+            if (request.sourceFeedItemId() != null)
+                metadata.put("source_feed_item_id", request.sourceFeedItemId());
 
             Map<String, String> headers = new LinkedHashMap<>();
             headers.put("Content-Type", contentType);

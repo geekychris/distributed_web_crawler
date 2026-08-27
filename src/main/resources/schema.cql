@@ -78,15 +78,18 @@ CREATE TABLE IF NOT EXISTS crawler.feeds (
     adaptive               boolean,
     follow_articles        boolean,
     store_full_content     boolean,
-    status                 text,        -- ACTIVE | PAUSED | ERROR
+    status                 text,
     etag                   text,
     last_modified          text,
     last_polled_at         timestamp,
     next_poll_at           timestamp,
     consecutive_errors     int,
+    consecutive_empty      int,
     created_at             timestamp,
     updated_at             timestamp
 );
+
+ALTER TABLE crawler.feeds ADD IF NOT EXISTS consecutive_empty int;
 
 CREATE TABLE IF NOT EXISTS crawler.feed_items (
     feed_id            uuid,

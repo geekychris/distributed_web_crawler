@@ -79,6 +79,8 @@ public class PageEventPublisher {
             data.put("depth", page.metadata() == null ? null : page.metadata().get("depth"));
             data.put("parent_url", page.metadata() == null ? null : page.metadata().get("parent_url"));
             data.put("job_id", page.jobId());
+            data.put("source_feed_item_id",
+                    page.metadata() == null ? null : page.metadata().get("source_feed_item_id"));
 
             Map<String, Object> envelope = new LinkedHashMap<>();
             envelope.put("specversion", SPEC_VERSION);

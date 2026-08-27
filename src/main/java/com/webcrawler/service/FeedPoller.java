@@ -6,9 +6,11 @@ import com.rometools.rome.feed.synd.SyndEnclosure;
 import com.rometools.rome.feed.synd.SyndEntry;
 import com.rometools.rome.feed.synd.SyndFeed;
 import com.rometools.rome.io.SyndFeedInput;
+import com.webcrawler.model.CrawlRequest;
 import com.webcrawler.model.Feed;
 import com.webcrawler.model.FeedItem;
 import com.webcrawler.queue.FeedItemPublisher;
+import com.webcrawler.queue.UrlQueue;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,12 +40,25 @@ import java.util.concurrent.TimeUnit;
 /**
  * Fixed-cadence poller. Every {@link #POLL_TICK_SECONDS} it lists all feeds,
  * picks the ones whose {@code next_poll_at} is due, and processes them on a
- * shared virtual-thread executor. Per-feed work: conditional GET (ETag /
- * Last-Modified) → ROME parse → dedup via {@code feed_items_by_id} → persist
- * new items → publish CloudEvent.
+ * shared virtual-thread executor.
  *
- * <p>Adaptive backoff is not implemented in Phase 1 — the reader honours the
- * feed's configured pollIntervalSeconds only.
+ * <p>Adaptive behaviour (feeds with {@code adaptive=true}):
+ * <ul>
+ *   <li>New items returned → reset backoff to baseline cadence.</li>
+ *   <li>304 Not Modified OR all items already dedup'd → increment
+ *       {@code consecutiveEmpty}; effective interval grows 1.5^n.</li>
+ *   <li>HTTP error or exception → increment {@code consecutiveErrors};
+ *       effective interval grows 2^n. Five in a row flips the feed to
+ *       {@link Feed.Status#ERROR} so the poller skips it.</li>
+ *   <li>Absolute ceiling at 6 hours — see
+ *       {@link Feed#effectiveIntervalSeconds()}.</li>
+ * </ul>
+ *
+ * <p>If a feed has {@code follow_articles=true}, each NEW item's URL is
+ * enqueued through the normal crawl pipeline, its host is trusted for the
+ * session in {@link ScopeService}, and the crawl request carries
+ * {@code sourceFeedItemId} so the downstream page event can be joined
+ * back to the feed item.
  */
 @Component
 public class FeedPoller {
@@ -53,6 +68,8 @@ public class FeedPoller {
 
     private final FeedRepository repo;
     private final FeedItemPublisher publisher;
+    private final UrlQueue urlQueue;
+    private final ScopeService scope;
     private final ExecutorService fetchExecutor = Executors.newVirtualThreadPerTaskExecutor();
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
@@ -60,9 +77,14 @@ public class FeedPoller {
             .build();
 
     @Autowired
-    public FeedPoller(FeedRepository repo, FeedItemPublisher publisher) {
+    public FeedPoller(FeedRepository repo,
+                      FeedItemPublisher publisher,
+                      UrlQueue urlQueue,
+                      ScopeService scope) {
         this.repo = repo;
         this.publisher = publisher;
+        this.urlQueue = urlQueue;
+        this.scope = scope;
     }
 
     @Scheduled(fixedDelayString = "PT" + POLL_TICK_SECONDS + "S")
@@ -88,6 +110,7 @@ public class FeedPoller {
     public void poll(Feed feed) {
         Instant pollAt = Instant.now();
         int errors = feed.consecutiveErrors();
+        int emptyPolls = feed.consecutiveEmpty();
         String etag = feed.etag();
         String lastModified = feed.lastModified();
         try {
@@ -111,28 +134,42 @@ public class FeedPoller {
             if (status == 304) {
                 logger.debug("Feed {} not modified (304)", feed.url());
                 errors = 0;
+                emptyPolls = emptyPolls + 1;
             } else if (status >= 200 && status < 300) {
                 int added = parseAndStore(feed, resp.body(), pollAt);
                 errors = 0;
-                logger.info("Feed {} → {} new item(s) (status {})", feed.url(), added, status);
+                emptyPolls = added > 0 ? 0 : emptyPolls + 1;
+                logger.info("Feed {} → {} new item(s) (status {}, empty streak {}, error streak {})",
+                        feed.url(), added, status, emptyPolls, errors);
             } else {
                 errors++;
                 logger.warn("Feed {} returned HTTP {} (errors={})", feed.url(), status, errors);
             }
 
-            Feed updated = feed.withNextPoll(
-                    pollAt,
-                    pollAt.plusSeconds(feed.pollIntervalSeconds()),
-                    newEtag, newLastModified, errors);
+            Feed updated = feed.withNextPoll(pollAt,
+                    nextPollAt(pollAt, feed, errors, emptyPolls),
+                    newEtag, newLastModified, errors, emptyPolls);
             repo.updatePollResult(updated);
         } catch (Exception e) {
             errors++;
             logger.warn("Feed poll failed for {} ({}): {}", feed.url(), errors, e.getMessage());
-            Feed updated = feed.withNextPoll(
-                    pollAt, pollAt.plusSeconds(feed.pollIntervalSeconds()),
-                    etag, lastModified, errors);
+            Feed updated = feed.withNextPoll(pollAt,
+                    nextPollAt(pollAt, feed, errors, emptyPolls),
+                    etag, lastModified, errors, emptyPolls);
             repo.updatePollResult(updated);
         }
+    }
+
+    /** Compute the reservation timestamp using the current empty/error state. */
+    static Instant nextPollAt(Instant pollAt, Feed baseFeed, int errors, int emptyPolls) {
+        Feed simulated = new Feed(
+                baseFeed.feedId(), baseFeed.url(), baseFeed.title(), baseFeed.pack(),
+                baseFeed.pollIntervalSeconds(), baseFeed.adaptive(),
+                baseFeed.followArticles(), baseFeed.storeFullContent(),
+                baseFeed.status(), baseFeed.etag(), baseFeed.lastModified(),
+                baseFeed.lastPolledAt(), baseFeed.nextPollAt(),
+                errors, emptyPolls, baseFeed.createdAt(), baseFeed.updatedAt());
+        return pollAt.plusSeconds(simulated.effectiveIntervalSeconds());
     }
 
     private int parseAndStore(Feed feed, byte[] body, Instant pollAt) {
@@ -152,12 +189,35 @@ public class FeedPoller {
                 if (repo.recordItemIfNew(item)) {
                     publisher.publish(feed, item, pollAt);
                     newCount++;
+                    if (feed.followArticles() && item.url() != null && !item.url().isBlank()) {
+                        followItemUrl(feed, item);
+                    }
                 }
             } catch (Exception e) {
                 logger.warn("Persist item {} for feed {}: {}", item.itemId(), feed.url(), e.getMessage());
             }
         }
         return newCount;
+    }
+
+    /**
+     * Enqueue the item's link URL through the normal crawl pipeline. The
+     * item's host joins the runtime scope (the user opted into the feed so
+     * downstream URLs are pre-trusted), and the CrawlRequest carries
+     * {@code sourceFeedItemId} so the page event can be joined back.
+     */
+    private void followItemUrl(Feed feed, FeedItem item) {
+        try {
+            scope.trustSubmission(item.url(), ScopeService.Mode.HOST);
+            CrawlRequest crawl = new CrawlRequest(
+                    item.url(), 0, feed.url(), Instant.now(), 1, 0, null, null, item.itemId());
+            urlQueue.enqueue(crawl);
+            logger.debug("Enqueued follow-article {} (feed={}, item={})",
+                    item.url(), feed.feedId(), item.itemId());
+        } catch (Exception e) {
+            logger.warn("Failed to enqueue follow-article for item {}: {}",
+                    item.itemId(), e.getMessage());
+        }
     }
 
     private FeedItem toItem(Feed feed, SyndEntry entry, Instant pollAt) {
@@ -196,13 +256,10 @@ public class FeedPoller {
 
         return new FeedItem(
                 feed.feedId(), itemId, url, title,
-                truncate(summary),
-                contentSnippet,
-                author,
+                truncate(summary), contentSnippet, author,
                 new LinkedHashSet<>(categories),
                 enclosures,
-                published, updated, pollAt,
-                /*followedPageUrl*/ null);
+                published, updated, pollAt, null);
     }
 
     private static String truncate(String s) {
