@@ -13,23 +13,34 @@ import com.vaadin.flow.component.notification.NotificationVariant;
 import com.vaadin.flow.component.orderedlayout.*;
 import com.vaadin.flow.component.tabs.Tab;
 import com.vaadin.flow.component.tabs.Tabs;
+import com.vaadin.flow.component.progressbar.ProgressBar;
+import com.vaadin.flow.component.radiobutton.RadioButtonGroup;
+import com.vaadin.flow.component.textfield.IntegerField;
 import com.vaadin.flow.component.textfield.TextArea;
 import com.vaadin.flow.component.textfield.TextField;
 import com.vaadin.flow.data.renderer.ComponentRenderer;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 import com.vaadin.flow.server.Command;
+import com.webcrawler.model.CrawlJob;
 import com.webcrawler.service.ActivityFeed;
+import com.webcrawler.service.CrawlJobService;
 import com.webcrawler.service.CrawlerUIService;
+import com.webcrawler.service.ScopeService;
 import com.webcrawler.storage.StorageService;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 @Route("")
 @PageTitle("Distributed Web Crawler Dashboard")
@@ -38,6 +49,8 @@ public class MainView extends VerticalLayout {
     private final CrawlerUIService crawlerService;
     private final StorageService storageService;
     private final ActivityFeed activityFeed;
+    private final CrawlJobService jobService;
+    private final com.webcrawler.queue.UrlQueue urlQueue;
 
     // Dashboard components
     private Button startStopButton;
@@ -48,7 +61,6 @@ public class MainView extends VerticalLayout {
     
     // URL submission components
     private TextArea urlsTextArea;
-    private TextField singleUrlField;
     
     // Database query components
     private TextField searchField;
@@ -59,10 +71,13 @@ public class MainView extends VerticalLayout {
     
     @Autowired
     public MainView(CrawlerUIService crawlerService, StorageService storageService,
-                    ActivityFeed activityFeed) {
+                    ActivityFeed activityFeed, CrawlJobService jobService,
+                    com.webcrawler.queue.UrlQueue urlQueue) {
         this.crawlerService = crawlerService;
         this.storageService = storageService;
         this.activityFeed = activityFeed;
+        this.jobService = jobService;
+        this.urlQueue = urlQueue;
         
         setSizeFull();
         setPadding(true);
@@ -71,33 +86,26 @@ public class MainView extends VerticalLayout {
         // Create header
         add(createHeader());
         
-        // Create tabbed interface
         Tabs tabs = new Tabs();
         Tab dashboardTab = new Tab("Dashboard");
-        Tab addUrlsTab = new Tab("Add URLs");
+        Tab startCrawlTab = new Tab("Start a Crawl");
+        Tab jobsTab = new Tab("Jobs");
         Tab queryTab = new Tab("Query Database");
-        tabs.add(dashboardTab, addUrlsTab, queryTab);
-        
-        // Content area that changes based on selected tab
+        tabs.add(dashboardTab, startCrawlTab, jobsTab, queryTab);
+
         Div contentArea = new Div();
         contentArea.setSizeFull();
-        
-        // Show dashboard by default
         contentArea.add(createDashboardContent());
-        
+
         tabs.addSelectedChangeListener(event -> {
             contentArea.removeAll();
             Tab selectedTab = event.getSelectedTab();
-            
-            if (selectedTab == dashboardTab) {
-                contentArea.add(createDashboardContent());
-            } else if (selectedTab == addUrlsTab) {
-                contentArea.add(createAddUrlsContent());
-            } else if (selectedTab == queryTab) {
-                contentArea.add(createQueryContent());
-            }
+            if (selectedTab == dashboardTab) contentArea.add(createDashboardContent());
+            else if (selectedTab == startCrawlTab) contentArea.add(createStartCrawlContent());
+            else if (selectedTab == jobsTab) contentArea.add(createJobsContent());
+            else if (selectedTab == queryTab) contentArea.add(createQueryContent());
         });
-        
+
         add(tabs, contentArea);
         
         // Initialize auto-refresh
@@ -191,47 +199,221 @@ public class MainView extends VerticalLayout {
         } catch (Exception ignored) {}
     }
     
-    private Component createAddUrlsContent() {
+    private Component createStartCrawlContent() {
         VerticalLayout layout = new VerticalLayout();
         layout.setSpacing(true);
-        
-        // Single URL input
-        H3 singleUrlHeader = new H3("Add Single URL");
-        singleUrlField = new TextField("URL to crawl");
-        singleUrlField.setPlaceholder("https://example.com");
-        singleUrlField.setWidthFull();
-        
-        Button addSingleButton = new Button("Add URL", new Icon(VaadinIcon.PLUS));
-        addSingleButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
-        addSingleButton.addClickListener(e -> addSingleUrl());
-        
-        HorizontalLayout singleUrlLayout = new HorizontalLayout(singleUrlField, addSingleButton);
-        singleUrlLayout.setWidthFull();
-        singleUrlLayout.setFlexGrow(1, singleUrlField);
-        singleUrlLayout.setAlignItems(FlexComponent.Alignment.END);
-        
-        // Bulk URL input
-        H3 bulkUrlHeader = new H3("Add Multiple URLs");
-        urlsTextArea = new TextArea("URLs (one per line)");
-        urlsTextArea.setPlaceholder("https://example1.com\nhttps://example2.com\nhttps://example3.com");
+        layout.setPadding(false);
+
+        TextField nameField = new TextField("Name");
+        nameField.setPlaceholder("My crawl");
+        nameField.setWidthFull();
+
+        urlsTextArea = new TextArea("Seed URLs (one per line)");
+        urlsTextArea.setPlaceholder("https://amiga.com/\nhttps://example.com/");
         urlsTextArea.setWidthFull();
-        urlsTextArea.setHeight("200px");
-        
-        Button addMultipleButton = new Button("Add All URLs", new Icon(VaadinIcon.UPLOAD));
-        addMultipleButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
-        addMultipleButton.addClickListener(e -> addMultipleUrls());
-        
-        layout.add(
-            singleUrlHeader,
-            singleUrlLayout,
-            new Hr(),
-            bulkUrlHeader, 
-            urlsTextArea,
-            addMultipleButton
-        );
-        
+        urlsTextArea.setHeight("140px");
+
+        RadioButtonGroup<String> scopeMode = new RadioButtonGroup<>();
+        scopeMode.setLabel("Scope");
+        scopeMode.setItems("Same host only", "Same domain (recommended)", "Any domain");
+        scopeMode.setValue("Same domain (recommended)");
+        scopeMode.setHelperText(
+                "Same host: only pages on the exact host (news.example.com). "
+              + "Same domain: news.example.com plus any *.example.com. "
+              + "Any: follow links anywhere (respects excludes below).");
+
+        IntegerField maxDepthField = intField("Max depth", 3, 0, 20);
+        IntegerField maxPagesField = intField("Max pages (total, -1 = unlimited)", 100, -1, 1_000_000);
+        IntegerField maxPagesPerDomainField = intField("Max pages per domain", 50, -1, 1_000_000);
+        IntegerField maxDomainsField = intField("Max distinct domains", -1, -1, 100_000);
+
+        HorizontalLayout budgets = new HorizontalLayout(
+                maxDepthField, maxPagesField, maxPagesPerDomainField, maxDomainsField);
+        budgets.setWidthFull();
+        budgets.getChildren().forEach(c -> {
+            if (c instanceof HasSize hs) hs.setWidth("22%");
+        });
+
+        TextArea includeArea = new TextArea("Additional allowed domain patterns (regex, one per line, optional)");
+        includeArea.setPlaceholder(".*\\.wikipedia\\.org$");
+        includeArea.setWidthFull();
+        includeArea.setHeight("70px");
+
+        TextArea excludeArea = new TextArea("Exclude URL patterns (regex, one per line, optional)");
+        excludeArea.setPlaceholder("/logout.*\n\\.pdf$");
+        excludeArea.setWidthFull();
+        excludeArea.setHeight("70px");
+
+        Button startButton = new Button("Start Crawl", new Icon(VaadinIcon.PLAY));
+        startButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY, ButtonVariant.LUMO_SUCCESS);
+        startButton.addClickListener(e -> startCrawl(
+                nameField.getValue(),
+                urlsTextArea.getValue(),
+                scopeMode.getValue(),
+                maxDepthField.getValue(),
+                maxPagesField.getValue(),
+                maxPagesPerDomainField.getValue(),
+                maxDomainsField.getValue(),
+                includeArea.getValue(),
+                excludeArea.getValue()));
+
+        Paragraph help = new Paragraph(
+                "This creates a Crawl Job with the settings below and starts it. "
+              + "Track progress on the Jobs tab.");
+        help.getStyle().set("color", "var(--lumo-secondary-text-color)").set("margin", "0");
+
+        layout.add(new H3("Start a Crawl"), help, nameField, urlsTextArea, scopeMode,
+                new H3("Budgets"), budgets,
+                new H3("Advanced (optional)"), includeArea, excludeArea,
+                startButton);
         return layout;
     }
+
+    private IntegerField intField(String label, int def, int min, int max) {
+        IntegerField f = new IntegerField(label);
+        f.setValue(def);
+        f.setMin(min);
+        f.setMax(max);
+        f.setStepButtonsVisible(true);
+        return f;
+    }
+
+    private void startCrawl(String name, String urlsText, String scopeChoice,
+                            Integer maxDepth, Integer maxPages, Integer maxPagesPerDomain,
+                            Integer maxDomains, String includes, String excludes) {
+        try {
+            Set<String> seeds = parseLines(urlsText).stream()
+                    .map(this::coerceScheme)
+                    .collect(Collectors.toCollection(java.util.LinkedHashSet::new));
+            if (seeds.isEmpty()) {
+                showNotification("Enter at least one seed URL", true);
+                return;
+            }
+            String jobName = (name == null || name.isBlank())
+                    ? "crawl-" + Instant.now().toString().substring(11, 19)
+                    : name.trim();
+
+            Set<String> allowed = new java.util.LinkedHashSet<>(parseLines(includes));
+            ScopeService.Mode mode;
+            switch (scopeChoice) {
+                case "Same host only" -> {
+                    mode = ScopeService.Mode.HOST;
+                    seeds.forEach(s -> allowed.add("^" + java.util.regex.Pattern.quote(hostOf(s)) + "$"));
+                }
+                case "Any domain" -> mode = ScopeService.Mode.ANY;
+                default -> {
+                    mode = ScopeService.Mode.DOMAIN;
+                    seeds.forEach(s -> {
+                        String d = registrableDomain(hostOf(s));
+                        if (d != null) allowed.add("(^|\\.)" + java.util.regex.Pattern.quote(d) + "$");
+                    });
+                }
+            }
+            seeds.forEach(s -> crawlerService.trustSubmissionFor(s, mode));
+
+            CrawlJob job = jobService.create(
+                    jobName, seeds, allowed, new java.util.LinkedHashSet<>(parseLines(excludes)),
+                    maxPages == null ? -1 : maxPages,
+                    maxPagesPerDomain == null ? -1 : maxPagesPerDomain,
+                    maxDomains == null ? -1 : maxDomains);
+
+            jobService.updateStatus(job.jobId(), CrawlJob.Status.RUNNING);
+            for (String seed : seeds) {
+                urlQueue.enqueue(new com.webcrawler.model.CrawlRequest(
+                        seed, 0, null, Instant.now(), 1, 0, null, job.jobId()));
+            }
+            showNotification("Started job '" + jobName + "' with " + seeds.size() + " seed(s) — see Jobs tab",
+                    false);
+        } catch (Exception ex) {
+            showNotification("Failed to start crawl: " + ex.getMessage(), true);
+        }
+    }
+
+    private List<String> parseLines(String text) {
+        if (text == null || text.isBlank()) return List.of();
+        return Arrays.stream(text.split("\\r?\\n"))
+                .map(String::trim).filter(s -> !s.isEmpty()).toList();
+    }
+
+    private String coerceScheme(String url) {
+        if (url.startsWith("http://") || url.startsWith("https://")) return url;
+        return "https://" + url;
+    }
+
+    private String hostOf(String url) {
+        try { return java.net.URI.create(url).getHost(); } catch (Exception e) { return ""; }
+    }
+
+    private String registrableDomain(String host) {
+        if (host == null) return null;
+        String[] parts = host.split("\\.");
+        if (parts.length < 2) return host;
+        return parts[parts.length - 2] + "." + parts[parts.length - 1];
+    }
+
+    private Component createJobsContent() {
+        VerticalLayout layout = new VerticalLayout();
+        layout.setSizeFull();
+        layout.setPadding(false);
+
+        Grid<CrawlJob> grid = new Grid<>(CrawlJob.class, false);
+        grid.addColumn(CrawlJob::name).setHeader("Name").setFlexGrow(1);
+        grid.addColumn(j -> j.status().name()).setHeader("Status").setWidth("110px");
+        grid.addColumn(j -> j.seedUrls().size()).setHeader("Seeds").setWidth("80px");
+        grid.addColumn(j -> renderBudget(j.maxPages())).setHeader("Max pages").setWidth("100px");
+        grid.addColumn(j -> renderBudget(j.maxPagesPerDomain())).setHeader("Per domain").setWidth("100px");
+        grid.addColumn(new ComponentRenderer<>(job -> {
+            long total = 0, distinct = 0;
+            try {
+                total = jobService.totalCrawled(job.jobId());
+                distinct = jobService.distinctDomains(job.jobId());
+            } catch (Exception ignored) {}
+            String label = total + " page(s) / " + distinct + " domain(s)";
+            if (job.maxPages() > 0) {
+                ProgressBar pb = new ProgressBar(0, job.maxPages(),
+                        Math.min(job.maxPages(), total));
+                VerticalLayout box = new VerticalLayout(new Span(label), pb);
+                box.setPadding(false); box.setSpacing(false);
+                return box;
+            }
+            return new Span(label);
+        })).setHeader("Progress").setFlexGrow(2);
+        grid.addColumn(new ComponentRenderer<>(job -> {
+            HorizontalLayout btns = new HorizontalLayout();
+            Button pause = new Button("Pause", e -> {
+                jobService.updateStatus(job.jobId(), CrawlJob.Status.PAUSED);
+                refreshJobsGrid(grid);
+            });
+            Button resume = new Button("Resume", e -> {
+                jobService.updateStatus(job.jobId(), CrawlJob.Status.RUNNING);
+                refreshJobsGrid(grid);
+            });
+            Button cancel = new Button("Cancel", e -> {
+                jobService.updateStatus(job.jobId(), CrawlJob.Status.CANCELLED);
+                refreshJobsGrid(grid);
+            });
+            cancel.addThemeVariants(ButtonVariant.LUMO_ERROR, ButtonVariant.LUMO_SMALL);
+            pause.addThemeVariants(ButtonVariant.LUMO_SMALL);
+            resume.addThemeVariants(ButtonVariant.LUMO_SMALL);
+            btns.add(pause, resume, cancel);
+            return btns;
+        })).setHeader("Actions").setWidth("240px");
+
+        grid.setSizeFull();
+        refreshJobsGrid(grid);
+
+        Button refresh = new Button("Refresh", new Icon(VaadinIcon.REFRESH),
+                e -> refreshJobsGrid(grid));
+        layout.add(new H3("Crawl Jobs"), refresh, grid);
+        return layout;
+    }
+
+    private void refreshJobsGrid(Grid<CrawlJob> grid) {
+        try { grid.setItems(jobService.listAll()); }
+        catch (Exception ex) { showNotification("Load failed: " + ex.getMessage(), true); }
+    }
+
+    private String renderBudget(int v) { return v < 0 ? "∞" : String.valueOf(v); }
     
     private Component createQueryContent() {
         VerticalLayout layout = new VerticalLayout();
@@ -322,57 +504,6 @@ public class MainView extends VerticalLayout {
         } catch (Exception e) {
             showNotification("Error: " + e.getMessage(), true);
         }
-    }
-    
-    private void addSingleUrl() {
-        String url = singleUrlField.getValue().trim();
-        if (url.isEmpty()) {
-            showNotification("Please enter a URL", true);
-            return;
-        }
-        
-        if (!url.startsWith("http://") && !url.startsWith("https://")) {
-            url = "https://" + url;
-        }
-        
-        try {
-            crawlerService.addSeedUrl(url).join();
-            singleUrlField.clear();
-            showNotification("Queued: " + url + " (domain trusted for this session)", false);
-        } catch (Exception e) {
-            showNotification("Error adding URL: " + e.getMessage(), true);
-        }
-    }
-    
-    private void addMultipleUrls() {
-        String urlsText = urlsTextArea.getValue().trim();
-        if (urlsText.isEmpty()) {
-            showNotification("Please enter URLs to add", true);
-            return;
-        }
-        
-        String[] urls = urlsText.split("\n");
-        int successCount = 0;
-        int errorCount = 0;
-        
-        for (String url : urls) {
-            url = url.trim();
-            if (url.isEmpty()) continue;
-            
-            if (!url.startsWith("http://") && !url.startsWith("https://")) {
-                url = "https://" + url;
-            }
-            
-            try {
-                crawlerService.addSeedUrl(url).join();
-                successCount++;
-            } catch (Exception e) {
-                errorCount++;
-            }
-        }
-        
-        urlsTextArea.clear();
-        showNotification(String.format("Added %d URLs successfully, %d failed", successCount, errorCount), errorCount > 0);
     }
     
     private void performSearch() {

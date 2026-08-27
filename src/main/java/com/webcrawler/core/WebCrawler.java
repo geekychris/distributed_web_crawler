@@ -304,20 +304,26 @@ public class WebCrawler {
 
             Document doc = response.parse();
             String rawHtml = doc.html();
-            // Hash extracted visible text, not raw HTML: strips CSRF tokens,
-            // ad slots, timestamps, and other per-fetch noise that would
-            // defeat dedup. Explicit UTF-8 so hashes match across machines.
             String contentHash = sha256Hex(doc.text().getBytes(StandardCharsets.UTF_8));
 
             if (storageService.exists(contentHash).join()) {
-                logger.debug("Duplicate content, skipping: {}", request.url());
+                logger.info("Duplicate content — skipping {} (hash matches earlier page)", request.url());
+                activity.rejected(request.url(), "duplicate content (visible text hash)");
                 return;
             }
 
-            Set<String> discoveredLinks = extractAndFilterLinks(doc, request);
+            // Extract ALL absolute links (unfiltered) — the stored page
+            // reflects reality. Then compute the in-scope subset for
+            // enqueueing. Users see both counts.
+            Set<String> discoveredLinks = extractAllLinks(doc);
+            Set<String> linksToFollow = discoveredLinks.stream()
+                    .filter(scope::allows)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
 
             Map<String, String> metadata = new LinkedHashMap<>();
             metadata.put("depth", String.valueOf(request.depth()));
+            metadata.put("links_discovered", String.valueOf(discoveredLinks.size()));
+            metadata.put("links_followed", String.valueOf(linksToFollow.size()));
             if (request.parentUrl() != null) metadata.put("parent_url", request.parentUrl());
 
             Map<String, String> headers = new LinkedHashMap<>();
@@ -339,11 +345,11 @@ public class WebCrawler {
                     .orTimeout(30, TimeUnit.SECONDS)
                     .join();
 
-            activity.crawled(request.url(), status, discoveredLinks.size());
+            activity.crawled(request.url(), status, discoveredLinks.size(), linksToFollow.size());
 
-            // Enqueue discovered links — depth-checked here to avoid
+            // Enqueue in-scope links — depth-checked here to avoid
             // 2-4x wasted Kafka/Cassandra/log traffic.
-            enqueueDiscoveredLinks(request, discoveredLinks);
+            enqueueDiscoveredLinks(request, linksToFollow);
 
         } catch (IOException e) {
             logger.warn("Crawl failed for {}: {}", request.url(), e.getMessage());
@@ -354,12 +360,11 @@ public class WebCrawler {
         }
     }
 
-    private Set<String> extractAndFilterLinks(Document doc, CrawlRequest request) {
+    private Set<String> extractAllLinks(Document doc) {
         return doc.select("a[href]").stream()
                 .map(el -> el.attr("abs:href"))
                 .map(this::normalize)
                 .filter(Objects::nonNull)
-                .filter(scope::allows)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 

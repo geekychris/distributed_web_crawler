@@ -23,9 +23,9 @@ public class ActivityFeed {
     private static final int CAPACITY = 200;
     private final Deque<Event> events = new ArrayDeque<>(CAPACITY);
 
-    public synchronized void crawled(String url, int status, int linksFound) {
+    public synchronized void crawled(String url, int status, int linksFound, int linksFollowed) {
         push(new Event(Instant.now(), Kind.CRAWLED, url,
-                "http " + status + " · " + linksFound + " link(s)"));
+                "http " + status + " · " + linksFound + " found → " + linksFollowed + " to crawl"));
     }
 
     public synchronized void rejected(String url, String reason) {

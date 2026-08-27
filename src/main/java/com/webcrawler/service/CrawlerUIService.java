@@ -60,10 +60,18 @@ public class CrawlerUIService {
     }
     
     public CompletableFuture<Void> addSeedUrl(String url) {
-        // User explicitly asked us to crawl this — trust it, expand runtime scope.
-        scope.trustSubmission(url);
+        return addSeedUrl(url, ScopeService.Mode.HOST);
+    }
+
+    public CompletableFuture<Void> addSeedUrl(String url, ScopeService.Mode mode) {
+        scope.trustSubmission(url, mode);
         CrawlRequest request = new CrawlRequest(url, 0, null, Instant.now(), 1);
         return urlQueue.enqueue(request);
+    }
+
+    /** Register scope trust without enqueueing — used when the enqueue is done separately (jobs). */
+    public void trustSubmissionFor(String url, ScopeService.Mode mode) {
+        scope.trustSubmission(url, mode);
     }
     
     public CompletableFuture<Void> addSeedUrls(List<String> urls) {
