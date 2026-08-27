@@ -236,6 +236,57 @@ else
     failures+=("feed-pack idempotency"); fail=$((fail+1))
 fi
 
+section "Unified records iterator"
+# Kafka path over pages topic — expect at least 1 record from the autostart
+# crawls plus a well-formed next_cursor.
+K_RESP=$(curl -sS "$HOST/api/records?type=page&stream=kafka&limit=5")
+K_STREAM=$(printf '%s' "$K_RESP" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("stream",""))')
+K_COUNT=$(printf '%s' "$K_RESP" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("count",0))')
+K_NEXT=$(printf '%s' "$K_RESP" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("next_cursor",""))')
+if [ "$K_STREAM" = "kafka" ] && [ "$K_COUNT" -gt 0 ] && printf '%s' "$K_NEXT" | grep -q '^kafka:0:[0-9]\+$'; then
+    printf '  ok  kafka page iterator returned %s record(s), cursor=%s\n' "$K_COUNT" "$K_NEXT"
+    pass=$((pass+1))
+else
+    printf '  FAIL kafka page iterator: stream=%s count=%s cursor=%s\n' "$K_STREAM" "$K_COUNT" "$K_NEXT"
+    failures+=("records iterator kafka"); fail=$((fail+1))
+fi
+
+# Kafka cursor advance — request same cursor twice, expect it to stay put
+# (Kafka polls to end and stops; next call from same cursor yields more or
+# the same next_cursor).
+K_RESP2=$(curl -sS "$HOST/api/records?type=page&stream=kafka&cursor=$K_NEXT&limit=5")
+K_NEXT2=$(printf '%s' "$K_RESP2" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("next_cursor",""))')
+if [ -n "$K_NEXT2" ]; then
+    printf '  ok  cursor-resume returned next_cursor=%s\n' "$K_NEXT2"; pass=$((pass+1))
+else
+    printf '  FAIL cursor-resume produced no next_cursor\n'
+    failures+=("records iterator kafka resume"); fail=$((fail+1))
+fi
+
+# Cassandra path over pages
+C_RESP=$(curl -sS "$HOST/api/records?type=page&stream=cassandra&limit=5")
+C_STREAM=$(printf '%s' "$C_RESP" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("stream",""))')
+C_COUNT=$(printf '%s' "$C_RESP" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("count",0))')
+if [ "$C_STREAM" = "cassandra" ] && [ "$C_COUNT" -gt 0 ]; then
+    printf '  ok  cassandra page iterator returned %s row(s)\n' "$C_COUNT"; pass=$((pass+1))
+else
+    printf '  FAIL cassandra page iterator: stream=%s count=%s\n' "$C_STREAM" "$C_COUNT"
+    failures+=("records iterator cassandra"); fail=$((fail+1))
+fi
+
+# Cassandra path over feed items
+CF_COUNT=$(curl -sS "$HOST/api/records?type=feed_item&stream=cassandra&limit=5" \
+    | python3 -c 'import json,sys;print(json.load(sys.stdin).get("count",0))')
+if [ "$CF_COUNT" -gt 0 ]; then
+    printf '  ok  cassandra feed_item iterator returned %s row(s)\n' "$CF_COUNT"; pass=$((pass+1))
+else
+    printf '  WARN cassandra feed_item iterator returned 0 (no feed items yet)\n'
+fi
+
+# Bad params
+expect_status "unknown type returns 400" GET "$HOST/api/records?type=nonsense" 400
+expect_status "unknown stream returns 400" GET "$HOST/api/records?type=page&stream=nonsense" 400
+
 section "Follow-articles pipeline"
 # Subscribe to a small RSS feed with follow_articles=true, then verify that
 # after the poll fires we see page CloudEvents whose source_feed_item_id
