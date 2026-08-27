@@ -26,6 +26,7 @@ import com.vaadin.flow.router.Route;
 import com.vaadin.flow.server.Command;
 import com.webcrawler.model.CrawlJob;
 import com.webcrawler.model.Feed;
+import com.webcrawler.model.FeedItem;
 import com.webcrawler.model.FeedPack;
 import com.webcrawler.service.ActivityFeed;
 import com.webcrawler.service.CrawlJobService;
@@ -501,6 +502,7 @@ public class MainView extends VerticalLayout {
                 .setHeader("Streak").setWidth("110px");
         grid.addColumn(new ComponentRenderer<>(feed -> {
             HorizontalLayout btns = new HorizontalLayout();
+            Button viewItems = new Button("Items", e -> showFeedItemsDialog(feed));
             Button pollNow = new Button("Poll", e -> {
                 try { feedPoller.poll(feed); refreshFeedsGrid(grid);
                     showNotification("Polled " + feed.url(), false);
@@ -517,11 +519,12 @@ public class MainView extends VerticalLayout {
                 showNotification("Deleted " + feed.url(), false);
             });
             deleteBtn.addThemeVariants(ButtonVariant.LUMO_ERROR, ButtonVariant.LUMO_SMALL);
+            viewItems.addThemeVariants(ButtonVariant.LUMO_TERTIARY, ButtonVariant.LUMO_SMALL);
             pollNow.addThemeVariants(ButtonVariant.LUMO_SMALL);
             pauseBtn.addThemeVariants(ButtonVariant.LUMO_SMALL);
-            btns.add(pollNow, pauseBtn, deleteBtn);
+            btns.add(viewItems, pollNow, pauseBtn, deleteBtn);
             return btns;
-        })).setHeader("Actions").setWidth("240px");
+        })).setHeader("Actions").setWidth("320px");
         grid.setSizeFull();
 
         refreshFeedsGrid(grid);
@@ -566,6 +569,64 @@ public class MainView extends VerticalLayout {
     private void refreshFeedsGrid(Grid<Feed> grid) {
         try { grid.setItems(feedRepo.listAll()); }
         catch (Exception ex) { showNotification("Load feeds failed: " + ex.getMessage(), true); }
+    }
+
+    private void showFeedItemsDialog(Feed feed) {
+        Dialog dialog = new Dialog();
+        dialog.setWidth("80%");
+        dialog.setHeight("80%");
+        dialog.setDraggable(true);
+        dialog.setResizable(true);
+
+        VerticalLayout content = new VerticalLayout();
+        content.setSizeFull();
+        content.setPadding(false);
+
+        content.add(new H3("Items — " + (feed.title() == null ? feed.url() : feed.title())));
+        Paragraph meta = new Paragraph(feed.url());
+        meta.getStyle().set("color", "var(--lumo-secondary-text-color)").set("margin", "0");
+        content.add(meta);
+
+        Grid<FeedItem> itemGrid = new Grid<>(FeedItem.class, false);
+        itemGrid.addColumn(FeedItem::title).setHeader("Title").setFlexGrow(3);
+        itemGrid.addColumn(item -> item.publishedAt() == null ? ""
+                        : DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+                                .format(item.publishedAt().atZone(ZoneId.systemDefault())))
+                .setHeader("Published").setWidth("140px");
+        itemGrid.addColumn(item -> item.firstSeen() == null ? ""
+                        : DateTimeFormatter.ofPattern("MM-dd HH:mm:ss")
+                                .format(item.firstSeen().atZone(ZoneId.systemDefault())))
+                .setHeader("First seen").setWidth("130px");
+        itemGrid.addColumn(item -> item.author() == null ? ""
+                        : item.author().trim().length() > 30
+                                ? item.author().trim().substring(0, 30) + "…"
+                                : item.author().trim())
+                .setHeader("Author").setWidth("160px");
+        itemGrid.addColumn(new ComponentRenderer<>(item -> {
+            if (item.url() == null) return new Span("");
+            Button open = new Button(item.url(),
+                    e -> UI.getCurrent().getPage().open(item.url(), "_blank"));
+            open.addThemeVariants(ButtonVariant.LUMO_TERTIARY, ButtonVariant.LUMO_SMALL);
+            return open;
+        })).setHeader("URL").setFlexGrow(2);
+        itemGrid.setSizeFull();
+
+        try {
+            List<FeedItem> items = feedRepo.recentItems(feed.feedId(), 100);
+            itemGrid.setItems(items);
+            content.add(new Span(items.size() + " item(s) shown (up to 100)"));
+        } catch (Exception ex) {
+            content.add(new Paragraph("Failed to load items: " + ex.getMessage()));
+        }
+        content.add(itemGrid);
+        content.setFlexGrow(1, itemGrid);
+
+        Button close = new Button("Close", e -> dialog.close());
+        close.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+        content.add(close);
+
+        dialog.add(content);
+        dialog.open();
     }
 
     // -----------------------------------------------------------------

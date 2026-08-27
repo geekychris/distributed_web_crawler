@@ -238,9 +238,9 @@ public class FeedPoller {
             if (c.getValue() != null) contentBuf.append(c.getValue()).append('\n');
         }
         String contentSnippet = contentBuf.length() == 0 ? null
-                : contentBuf.length() > CONTENT_SNIPPET_CAP
+                : stripControlChars(contentBuf.length() > CONTENT_SNIPPET_CAP
                         ? contentBuf.substring(0, CONTENT_SNIPPET_CAP) + "\n<truncated>"
-                        : contentBuf.toString();
+                        : contentBuf.toString());
 
         String author = entry.getAuthor();
 
@@ -263,9 +263,27 @@ public class FeedPoller {
     }
 
     private static String truncate(String s) {
+        s = stripControlChars(s);
         if (s == null) return null;
         if (s.length() <= CONTENT_SNIPPET_CAP) return s;
         return s.substring(0, CONTENT_SNIPPET_CAP) + "\n<truncated>";
+    }
+
+    /**
+     * Strip ASCII control characters (except \t / \n / \r) — some feeds ship
+     * raw form feeds and vertical tabs that break strict JSON parsers when we
+     * later serve the item via /api/feeds/{id}/items. Cheap defensive scrub.
+     */
+    static String stripControlChars(String s) {
+        if (s == null) return null;
+        StringBuilder sb = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c < 0x20 && c != '\t' && c != '\n' && c != '\r') continue;
+            if (c == 0x7f) continue;
+            sb.append(c);
+        }
+        return sb.toString();
     }
 
     static String sha256(String input) {
