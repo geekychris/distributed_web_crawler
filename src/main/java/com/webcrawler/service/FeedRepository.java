@@ -35,6 +35,7 @@ public class FeedRepository {
     private final PreparedStatement insertItemById;
     private final PreparedStatement itemExistsById;
     private final PreparedStatement selectRecentItems;
+    private final PreparedStatement selectAllItems;
 
     @Autowired
     public FeedRepository(CqlSession session) {
@@ -64,6 +65,8 @@ public class FeedRepository {
                 "SELECT item_id FROM feed_items_by_id WHERE item_id = ? LIMIT 1");
         this.selectRecentItems = session.prepare(
                 "SELECT * FROM feed_items WHERE feed_id = ? LIMIT ?");
+        this.selectAllItems = session.prepare(
+                "SELECT * FROM feed_items LIMIT ?");
     }
 
     public Feed create(Feed feed) {
@@ -132,6 +135,50 @@ public class FeedRepository {
         session.execute(selectRecentItems.bind(feedId, limit))
                 .forEach(r -> out.add(rowToItem(r)));
         return out;
+    }
+
+    /**
+     * Cross-feed browse — SELECT * FROM feed_items LIMIT N. Order is Cassandra
+     * partition token order, not global time order; adequate for "show me
+     * something" but not for strict recency. limit is clamped to a sensible
+     * ceiling (2000) to keep the scan bounded.
+     */
+    public List<FeedItem> recentAllItems(int limit) {
+        int capped = Math.min(Math.max(1, limit), 2000);
+        List<FeedItem> out = new ArrayList<>();
+        session.execute(selectAllItems.bind(capped)).forEach(r -> out.add(rowToItem(r)));
+        return out;
+    }
+
+    /**
+     * In-memory substring filter over the first {@code scanLimit} rows.
+     * Matches on title, url, and summary (case-insensitive). Same pattern as
+     * pages search — bounded, best-effort; a real answer needs a search
+     * index.
+     */
+    public List<FeedItem> searchAllItems(String query, int limit) {
+        String needle = query == null ? "" : query.trim().toLowerCase();
+        int scanLimit = 2000;
+        int wantMax = Math.min(Math.max(1, limit), 500);
+        List<FeedItem> out = new ArrayList<>();
+        for (Row r : session.execute(selectAllItems.bind(scanLimit))) {
+            FeedItem it = rowToItem(r);
+            if (needle.isEmpty() || matches(it, needle)) {
+                out.add(it);
+                if (out.size() >= wantMax) break;
+            }
+        }
+        return out;
+    }
+
+    private static boolean matches(FeedItem it, String needleLower) {
+        return contains(it.title(), needleLower)
+                || contains(it.url(), needleLower)
+                || contains(it.summary(), needleLower);
+    }
+
+    private static boolean contains(String haystack, String needleLower) {
+        return haystack != null && haystack.toLowerCase().contains(needleLower);
     }
 
     private Feed rowToFeed(Row r) {

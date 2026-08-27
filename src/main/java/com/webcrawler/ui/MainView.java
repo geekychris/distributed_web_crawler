@@ -75,7 +75,10 @@ public class MainView extends VerticalLayout {
     
     // Database query components
     private TextField searchField;
+    private ComboBox<String> contentTypeCombo;
     private Grid<StorageService.PageMetadata> pageGrid;
+    private Grid<FeedItem> feedItemGrid;
+    private Span resultsCountSpan;
     
     // Auto-refresh
     private ScheduledExecutorService scheduler;
@@ -698,30 +701,75 @@ public class MainView extends VerticalLayout {
     private Component createQueryContent() {
         VerticalLayout layout = new VerticalLayout();
         layout.setSizeFull();
-        
-        // Search interface
+        layout.setPadding(false);
+
         H3 queryHeader = new H3("Database Query");
-        searchField = new TextField("Search URLs");
-        searchField.setPlaceholder("Enter search term or leave empty to show all");
+
+        contentTypeCombo = new ComboBox<>("Content type");
+        contentTypeCombo.setItems("Web pages", "Feed items");
+        contentTypeCombo.setValue("Web pages");
+        contentTypeCombo.setWidth("180px");
+        contentTypeCombo.addValueChangeListener(e -> performSearch());
+
+        searchField = new TextField("Search (leave blank to browse latest)");
+        searchField.setPlaceholder("keyword — matches URL for pages, title/url/summary for feed items");
         searchField.setWidthFull();
-        
+        searchField.addKeyPressListener(com.vaadin.flow.component.Key.ENTER, e -> performSearch());
+
         Button searchButton = new Button("Search", new Icon(VaadinIcon.SEARCH));
         searchButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
         searchButton.addClickListener(e -> performSearch());
-        
+
         Button refreshButton = new Button("Refresh", new Icon(VaadinIcon.REFRESH));
-        refreshButton.addClickListener(e -> refreshGrid());
-        
-        HorizontalLayout searchLayout = new HorizontalLayout(searchField, searchButton, refreshButton);
+        refreshButton.addClickListener(e -> performSearch());
+
+        HorizontalLayout searchLayout = new HorizontalLayout(
+                contentTypeCombo, searchField, searchButton, refreshButton);
         searchLayout.setWidthFull();
         searchLayout.setFlexGrow(1, searchField);
         searchLayout.setAlignItems(FlexComponent.Alignment.END);
-        
-        // Results grid
+
+        resultsCountSpan = new Span("");
+        resultsCountSpan.getStyle().set("color", "var(--lumo-secondary-text-color)")
+                .set("font-size", "12px");
+
+        // Two grids, one visible at a time based on content type.
         pageGrid = createPageGrid();
-        
-        layout.add(queryHeader, searchLayout, pageGrid);
+        feedItemGrid = createFeedItemGrid();
+
+        layout.add(queryHeader, searchLayout, resultsCountSpan, pageGrid, feedItemGrid);
+        layout.setFlexGrow(1, pageGrid);
+        layout.setFlexGrow(1, feedItemGrid);
+
+        // Populate on first open so users see something without clicking.
+        performSearch();
         return layout;
+    }
+
+    private Grid<FeedItem> createFeedItemGrid() {
+        Grid<FeedItem> grid = new Grid<>(FeedItem.class, false);
+        grid.addColumn(FeedItem::title).setHeader("Title").setFlexGrow(3);
+        grid.addColumn(item -> item.publishedAt() == null ? ""
+                        : DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+                                .format(item.publishedAt().atZone(ZoneId.systemDefault())))
+                .setHeader("Published").setWidth("140px");
+        grid.addColumn(item -> item.author() == null ? ""
+                        : item.author().trim().length() > 30
+                                ? item.author().trim().substring(0, 30) + "…"
+                                : item.author().trim())
+                .setHeader("Author").setWidth("160px");
+        grid.addColumn(item -> item.categories() == null ? ""
+                        : String.join(", ", item.categories()))
+                .setHeader("Categories").setFlexGrow(1);
+        grid.addColumn(new ComponentRenderer<>(item -> {
+            if (item.url() == null) return new Span("");
+            Button open = new Button(item.url(),
+                    e -> UI.getCurrent().getPage().open(item.url(), "_blank"));
+            open.addThemeVariants(ButtonVariant.LUMO_TERTIARY, ButtonVariant.LUMO_SMALL);
+            return open;
+        })).setHeader("URL").setFlexGrow(2);
+        grid.setSizeFull();
+        return grid;
     }
     
     private Grid<StorageService.PageMetadata> createPageGrid() {
@@ -787,22 +835,43 @@ public class MainView extends VerticalLayout {
     }
     
     private void performSearch() {
-        String searchTerm = searchField.getValue().trim();
+        if (searchField == null || contentTypeCombo == null) return;
+        String searchTerm = searchField.getValue() == null ? "" : searchField.getValue().trim();
+        String type = contentTypeCombo.getValue();
+        boolean feedItems = "Feed items".equals(type);
+
+        // Toggle which grid is visible.
+        if (pageGrid != null) pageGrid.setVisible(!feedItems);
+        if (feedItemGrid != null) feedItemGrid.setVisible(feedItems);
+
         try {
-            if (searchTerm.isEmpty()) {
-                storageService.getAllPages(100, 0).thenAccept(pages -> {
-                    getUI().ifPresent(ui -> ui.access(() -> pageGrid.setItems(pages)));
-                });
+            if (feedItems) {
+                List<FeedItem> items = searchTerm.isEmpty()
+                        ? feedRepo.recentAllItems(200)
+                        : feedRepo.searchAllItems(searchTerm, 200);
+                feedItemGrid.setItems(items);
+                if (resultsCountSpan != null) {
+                    resultsCountSpan.setText(items.size() + " feed item(s)"
+                            + (searchTerm.isEmpty() ? " — showing latest" : " — matching '" + searchTerm + "'"));
+                }
             } else {
-                storageService.searchPages(searchTerm, 100).thenAccept(pages -> {
-                    getUI().ifPresent(ui -> ui.access(() -> pageGrid.setItems(pages)));
-                });
+                var future = searchTerm.isEmpty()
+                        ? storageService.getAllPages(200, 0)
+                        : storageService.searchPages(searchTerm, 200);
+                future.thenAccept(pages -> getUI().ifPresent(ui -> ui.access(() -> {
+                    pageGrid.setItems(pages);
+                    if (resultsCountSpan != null) {
+                        resultsCountSpan.setText(pages.size() + " page(s)"
+                                + (searchTerm.isEmpty() ? " — showing latest"
+                                        : " — matching '" + searchTerm + "'"));
+                    }
+                })));
             }
         } catch (Exception e) {
             showNotification("Search error: " + e.getMessage(), true);
         }
     }
-    
+
     private void refreshGrid() {
         performSearch();
     }
