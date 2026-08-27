@@ -115,6 +115,20 @@ CREATE TABLE IF NOT EXISTS crawler.feed_items_by_id (
     first_seen  timestamp
 );
 
+CREATE TABLE IF NOT EXISTS crawler.feed_packs (
+    pack_id      text PRIMARY KEY,
+    name         text,
+    description  text
+);
+
+CREATE TABLE IF NOT EXISTS crawler.feed_pack_members (
+    pack_id                       text,
+    url                           text,
+    title                         text,
+    default_poll_interval_seconds int,
+    PRIMARY KEY (pack_id, url)
+);
+
 -- Small table (usually <100k rows) — cheap to full-scan on the poller
 -- tick, so no secondary index on next_poll_at.
 

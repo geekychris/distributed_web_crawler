@@ -1,0 +1,15 @@
+packs:
+  - id: alpha
+    name: "Alpha"
+    description: "Alpha pack"
+    default_poll_interval_seconds: 300
+    feeds:
+      - url: "https://a.example/rss"
+        title: "A"
+      - url: "https://b.example/atom"
+        title: "B"
+        poll_interval_seconds: 60
+  - id: beta
+    name: "Beta"
+    feeds:
+      - url: "https://c.example/rss"

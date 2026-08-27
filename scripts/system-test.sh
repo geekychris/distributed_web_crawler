@@ -207,6 +207,35 @@ print(n)')
     fi
 fi
 
+section "Feed packs"
+expect_status "GET /api/feed-packs returns 200"      GET  "$HOST/api/feed-packs"        200
+expect_status "GET /api/feed-packs/tech exists"      GET  "$HOST/api/feed-packs/tech"   200
+expect_status "GET unknown pack returns 404"         GET  "$HOST/api/feed-packs/nonexistent" 404
+expect_status "subscribe to unknown pack returns 404" POST "$HOST/api/feed-packs/nonexistent/subscribe" 404
+
+# Subscribe to the 'retro' pack (small, less likely to collide with earlier
+# subscriptions in other test sections).
+SUB_RESPONSE=$(curl -sS --max-time 30 -X POST "$HOST/api/feed-packs/retro/subscribe")
+NEW_COUNT=$(printf '%s' "$SUB_RESPONSE" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("created", 0))' 2>/dev/null)
+TOTAL_IN_PACK=$(printf '%s' "$SUB_RESPONSE" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("totalInPack", 0))' 2>/dev/null)
+if [ -n "$TOTAL_IN_PACK" ] && [ "$TOTAL_IN_PACK" -gt 0 ]; then
+    printf '  ok  subscribed retro pack — %s new / %s in pack\n' "$NEW_COUNT" "$TOTAL_IN_PACK"
+    pass=$((pass+1))
+else
+    printf '  FAIL retro pack subscribe returned no members: %s\n' "$SUB_RESPONSE"
+    failures+=("feed-pack subscribe"); fail=$((fail+1))
+fi
+
+# Idempotency: subscribing again should add 0 new feeds.
+IDEMPOTENT=$(curl -sS --max-time 30 -X POST "$HOST/api/feed-packs/retro/subscribe" \
+    | python3 -c 'import json,sys;print(json.load(sys.stdin).get("created", -1))' 2>/dev/null)
+if [ "$IDEMPOTENT" = "0" ]; then
+    printf '  ok  re-subscribing is idempotent (created=0)\n'; pass=$((pass+1))
+else
+    printf '  FAIL re-subscribe added %s more (expected 0)\n' "$IDEMPOTENT"
+    failures+=("feed-pack idempotency"); fail=$((fail+1))
+fi
+
 section "Follow-articles pipeline"
 # Subscribe to a small RSS feed with follow_articles=true, then verify that
 # after the poll fires we see page CloudEvents whose source_feed_item_id
