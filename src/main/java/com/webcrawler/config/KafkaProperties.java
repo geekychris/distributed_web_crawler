@@ -8,6 +8,7 @@ public record KafkaProperties(
     @DefaultValue("localhost:9092") String bootstrapServers,
     @DefaultValue("crawler-group-1") String groupId,
     @DefaultValue("crawler-urls") String topic,
-    @DefaultValue("crawler.pages.v1") String pageEventsTopic
+    @DefaultValue("crawler.pages.v1") String pageEventsTopic,
+    @DefaultValue("crawler.feed_items.v1") String feedEventsTopic
 ) {
 }

@@ -63,3 +63,55 @@ CREATE TABLE IF NOT EXISTS crawler.crawl_job_domains (
     domain text,
     PRIMARY KEY (job_id, domain)
 );
+
+-- ----------------------------------------------------------------------
+-- Feed crawler (RSS / Atom) — distinct content type from web pages.
+-- Same infra, separate tables + Kafka topic (crawler.feed_items.v1).
+-- ----------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS crawler.feeds (
+    feed_id                uuid PRIMARY KEY,
+    url                    text,
+    title                  text,
+    pack                   text,
+    poll_interval_seconds  int,
+    adaptive               boolean,
+    follow_articles        boolean,
+    store_full_content     boolean,
+    status                 text,        -- ACTIVE | PAUSED | ERROR
+    etag                   text,
+    last_modified          text,
+    last_polled_at         timestamp,
+    next_poll_at           timestamp,
+    consecutive_errors     int,
+    created_at             timestamp,
+    updated_at             timestamp
+);
+
+CREATE TABLE IF NOT EXISTS crawler.feed_items (
+    feed_id            uuid,
+    first_seen         timestamp,
+    item_id            text,
+    url                text,
+    title              text,
+    summary            text,
+    content_snippet    text,
+    author             text,
+    categories         set<text>,
+    enclosures         list<frozen<map<text, text>>>,
+    published_at       timestamp,
+    updated_at         timestamp,
+    followed_page_url  text,
+    PRIMARY KEY ((feed_id), first_seen, item_id)
+) WITH CLUSTERING ORDER BY (first_seen DESC, item_id ASC);
+
+CREATE TABLE IF NOT EXISTS crawler.feed_items_by_id (
+    item_id     text PRIMARY KEY,
+    feed_id     uuid,
+    url         text,
+    first_seen  timestamp
+);
+
+-- Small table (usually <100k rows) — cheap to full-scan on the poller
+-- tick, so no secondary index on next_poll_at.
+

@@ -144,6 +144,69 @@ section "Scope endpoint reflects runtime allowlist"
 expect_json "scope returns a list" "$HOST/api/crawler/scope" \
     "'list' if isinstance(d['allowedDomains'], list) else 'other'" list
 
+section "Feed subscription round-trip"
+# httpbin has an /xml endpoint that returns a small Atom-shaped document.
+# Not a real feed, but ROME will handle it; we're primarily verifying the
+# subscribe → list → force-poll → recent-items pipeline.
+FEED_JSON=$(curl -sS --max-time 30 -X POST "$HOST/api/feeds" \
+    -H 'Content-Type: application/json' \
+    -d '{"url":"https://feeds.arstechnica.com/arstechnica/index",
+         "title":"Ars Technica","pack":"tech",
+         "pollIntervalSeconds":900}')
+FEED_ID=$(printf '%s' "$FEED_JSON" | python3 -c 'import json,sys;print(json.load(sys.stdin)["feedId"])' 2>/dev/null)
+if [ -z "$FEED_ID" ] || [ "$FEED_ID" = "null" ]; then
+    printf '  FAIL feed subscription returned no feedId — %s\n' "$FEED_JSON"
+    failures+=("feed subscribe"); fail=$((fail+1))
+else
+    printf '  ok  feed subscribed — feedId=%s\n' "$FEED_ID"; pass=$((pass+1))
+fi
+expect_status "GET /api/feeds returns 200" GET "$HOST/api/feeds" 200
+expect_status "pause on unknown feed returns 404" POST \
+    "$HOST/api/feeds/00000000-0000-0000-0000-000000000000/pause" 404
+
+if [ -n "$FEED_ID" ] && [ "$FEED_ID" != "null" ]; then
+    printf '  forcing an immediate poll…\n'
+    curl -sS -X POST "$HOST/api/feeds/$FEED_ID/poll" >/dev/null
+    printf '  waiting up to 60s for feed items to be persisted…\n'
+    deadline=$(($(date +%s) + 60))
+    items=0
+    while :; do
+        items=$(curl -sS "$HOST/api/feeds/$FEED_ID/items?limit=5" | \
+            python3 -c 'import json,sys;print(len(json.load(sys.stdin)))' 2>/dev/null || echo 0)
+        [ "$items" -gt 0 ] && break
+        [ "$(date +%s)" -ge $deadline ] && break
+        sleep 3
+    done
+    if [ "$items" -gt 0 ]; then
+        printf '  ok  %s feed item(s) persisted\n' "$items"; pass=$((pass+1))
+    else
+        printf '  WARN no items within 60s (feed may have been unreachable)\n'
+        printf '  soft-fail — the poller ran but got nothing back\n'
+    fi
+
+    section "Feed items CloudEvent on crawler.feed_items.v1"
+    FEED_EVENT_COUNT=$(docker exec "$KAFKA_CTR" \
+        kafka-console-consumer --bootstrap-server "$KAFKA_BOOT" \
+        --topic crawler.feed_items.v1 --from-beginning \
+        --max-messages 100 --timeout-ms 5000 2>/dev/null \
+      | python3 -c 'import json,sys
+n=0
+for line in sys.stdin:
+    line=line.strip()
+    if not line: continue
+    try:
+        d=json.loads(line)
+        if d.get("type")=="com.webcrawler.feed_item.discovered.v1": n+=1
+    except: pass
+print(n)')
+    if [ -n "$FEED_EVENT_COUNT" ] && [ "$FEED_EVENT_COUNT" -gt 0 ]; then
+        printf '  ok  %s CloudEvent(s) with type=com.webcrawler.feed_item.discovered.v1\n' "$FEED_EVENT_COUNT"
+        pass=$((pass+1))
+    else
+        printf '  WARN no feed_item CloudEvents (feed may have been unreachable)\n'
+    fi
+fi
+
 printf '\n----------\n'
 printf 'passed: %d   failed: %d\n' "$pass" "$fail"
 if [ $fail -gt 0 ]; then

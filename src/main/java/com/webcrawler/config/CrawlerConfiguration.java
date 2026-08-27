@@ -77,7 +77,7 @@ public class CrawlerConfiguration {
     private void applySchema(CqlSession session) {
         String schema = readClasspathResource("schema.cql");
         for (String raw : schema.split(";")) {
-            String stmt = raw.strip();
+            String stmt = stripCommentsAndTrim(raw);
             if (stmt.isEmpty() || stmt.regionMatches(true, 0, "USE ", 0, 4)) continue;
             try {
                 session.execute(stmt);
@@ -97,6 +97,17 @@ public class CrawlerConfiguration {
             }
         }
         logger.info("Cassandra schema applied");
+    }
+
+    /** Strip CQL-style `-- ...` line comments and surrounding whitespace. */
+    private static String stripCommentsAndTrim(String raw) {
+        StringBuilder sb = new StringBuilder(raw.length());
+        for (String line : raw.split("\\r?\\n")) {
+            int commentAt = line.indexOf("--");
+            if (commentAt >= 0) line = line.substring(0, commentAt);
+            if (!line.isBlank()) sb.append(line).append('\n');
+        }
+        return sb.toString().strip();
     }
 
     private String readClasspathResource(String name) {
