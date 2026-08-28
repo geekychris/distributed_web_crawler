@@ -540,6 +540,19 @@ public class MainView extends VerticalLayout {
 
         Button refresh = new Button("Refresh", new Icon(VaadinIcon.REFRESH),
                 e -> refreshFeedsGrid(grid));
+        Button dedup = new Button("Deduplicate", new Icon(VaadinIcon.RECYCLE), e -> {
+            try {
+                int removed = feedRepo.deduplicateByUrl();
+                refreshFeedsGrid(grid);
+                showNotification("Removed " + removed + " duplicate feed(s)", false);
+            } catch (Exception ex) {
+                showNotification("Deduplicate failed: " + ex.getMessage(), true);
+            }
+        });
+        dedup.getElement().setAttribute("title",
+                "Remove duplicate-URL feeds (keeps the oldest per URL)");
+
+        HorizontalLayout actions = new HorizontalLayout(refresh, dedup);
 
         VerticalLayout form = new VerticalLayout(new H3("Subscribe to a feed"), row1, row2);
         form.setPadding(true);
@@ -547,7 +560,7 @@ public class MainView extends VerticalLayout {
                 .set("border", "1px solid var(--lumo-contrast-20pct)")
                 .set("border-radius", "var(--lumo-border-radius)");
 
-        layout.add(form, new Hr(), refresh, grid);
+        layout.add(form, new Hr(), actions, grid);
         return layout;
     }
 
@@ -689,9 +702,15 @@ public class MainView extends VerticalLayout {
             subscribe.addClickListener(e -> {
                 try {
                     List<Feed> created = feedPacks.subscribeAll(pack.id());
-                    showNotification(created.size() + " new feed(s) subscribed from '"
-                            + pack.name() + "' (" + (pack.feeds().size() - created.size())
-                            + " already present)", false);
+                    int total = pack.feeds().size();
+                    boolean everythingSkipped = created.isEmpty() && total > 0;
+                    String msg = everythingSkipped
+                            ? "All " + total + " feed(s) in '" + pack.name()
+                              + "' were already subscribed — nothing added. See the Feeds tab."
+                            : created.size() + " new feed(s) subscribed from '"
+                              + pack.name() + "' (" + (total - created.size())
+                              + " already present). See the Feeds tab.";
+                    showNotification(msg, everythingSkipped);
                 } catch (Exception ex) {
                     showNotification("Subscribe failed: " + ex.getMessage(), true);
                 }
@@ -1025,9 +1044,16 @@ public class MainView extends VerticalLayout {
         String type = contentTypeCombo.getValue();
         boolean feedItems = "Feed items".equals(type);
 
-        // Toggle which grid is visible.
         if (pageGrid != null) pageGrid.setVisible(!feedItems);
         if (feedItemGrid != null) feedItemGrid.setVisible(feedItems);
+
+        // Pull totals in parallel so the "N of TOTAL" label is meaningful.
+        // Uses the cached StatsService counts (5s / 30s TTL) so this is cheap.
+        Map<String, Object> summary;
+        try { summary = statsService.summary(); }
+        catch (Exception e) { summary = Map.of(); }
+        long pagesTotal = toLong(summary.get("pages_total"));
+        long feedItemsTotal = toLong(summary.get("feed_items_total"));
 
         try {
             if (feedItems) {
@@ -1036,8 +1062,9 @@ public class MainView extends VerticalLayout {
                         : feedRepo.searchAllItems(searchTerm, 200);
                 feedItemGrid.setItems(items);
                 if (resultsCountSpan != null) {
-                    resultsCountSpan.setText(items.size() + " feed item(s)"
-                            + (searchTerm.isEmpty() ? " — showing latest" : " — matching '" + searchTerm + "'"));
+                    resultsCountSpan.setText(
+                            "showing " + items.size() + " of " + feedItemsTotal + " feed item(s)"
+                          + (searchTerm.isEmpty() ? "" : " — matching '" + searchTerm + "'"));
                 }
             } else {
                 var future = searchTerm.isEmpty()
@@ -1046,15 +1073,22 @@ public class MainView extends VerticalLayout {
                 future.thenAccept(pages -> getUI().ifPresent(ui -> ui.access(() -> {
                     pageGrid.setItems(pages);
                     if (resultsCountSpan != null) {
-                        resultsCountSpan.setText(pages.size() + " page(s)"
-                                + (searchTerm.isEmpty() ? " — showing latest"
-                                        : " — matching '" + searchTerm + "'"));
+                        resultsCountSpan.setText(
+                                "showing " + pages.size() + " of " + pagesTotal + " page(s)"
+                              + (searchTerm.isEmpty() ? "" : " — matching '" + searchTerm + "'"));
                     }
                 })));
             }
         } catch (Exception e) {
             showNotification("Search error: " + e.getMessage(), true);
         }
+    }
+
+    private static long toLong(Object o) {
+        if (o == null) return 0L;
+        if (o instanceof Number n) return n.longValue();
+        try { return Long.parseLong(String.valueOf(o)); }
+        catch (NumberFormatException e) { return 0L; }
     }
 
     private void refreshGrid() {

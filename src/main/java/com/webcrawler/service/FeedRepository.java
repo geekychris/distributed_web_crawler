@@ -138,6 +138,36 @@ public class FeedRepository {
     }
 
     /**
+     * @return the first Feed whose URL matches (case-sensitive), or empty.
+     *         Small-table linear scan — acceptable at the feed cardinality
+     *         we ever expect (<10k rows).
+     */
+    public Optional<Feed> findByUrl(String url) {
+        if (url == null) return Optional.empty();
+        for (Feed f : listAll()) if (url.equals(f.url())) return Optional.of(f);
+        return Optional.empty();
+    }
+
+    /**
+     * Remove duplicate-URL feeds, keeping the oldest per URL (lowest
+     * createdAt). Returns the number of feeds removed.
+     */
+    public int deduplicateByUrl() {
+        var byUrl = new java.util.LinkedHashMap<String, Feed>();
+        int removed = 0;
+        for (Feed f : listAll()) {
+            Feed keep = byUrl.get(f.url());
+            if (keep == null) { byUrl.put(f.url(), f); continue; }
+            Feed olderKeeper = keep.createdAt().isBefore(f.createdAt()) ? keep : f;
+            Feed toRemove = olderKeeper == keep ? f : keep;
+            if (olderKeeper != keep) byUrl.put(f.url(), olderKeeper);
+            delete(toRemove.feedId());
+            removed++;
+        }
+        return removed;
+    }
+
+    /**
      * Cross-feed browse — SELECT * FROM feed_items LIMIT N. Order is Cassandra
      * partition token order, not global time order; adequate for "show me
      * something" but not for strict recency. limit is clamped to a sensible

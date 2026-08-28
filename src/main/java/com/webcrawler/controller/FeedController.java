@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -39,14 +40,21 @@ public class FeedController {
             Boolean storeFullContent) {}
 
     @PostMapping
-    @Operation(summary = "Subscribe to a new feed")
+    @Operation(summary = "Subscribe to a new feed",
+            description = "Returns 409 CONFLICT if the URL is already subscribed.")
     public ResponseEntity<Feed> create(@RequestBody CreateFeedRequest req) {
         if (req.url() == null || req.url().isBlank()) {
             return ResponseEntity.badRequest().build();
         }
+        String url = req.url().trim();
+        Optional<Feed> existing = feeds.findByUrl(url);
+        if (existing.isPresent()) {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT)
+                    .body(existing.get());
+        }
         Instant now = Instant.now();
         Feed feed = new Feed(
-                UUID.randomUUID(), req.url().trim(), req.title(), req.pack(),
+                UUID.randomUUID(), url, req.title(), req.pack(),
                 req.pollIntervalSeconds() == null || req.pollIntervalSeconds() < 30
                         ? 900 : req.pollIntervalSeconds(),
                 Boolean.TRUE.equals(req.adaptive()),
@@ -59,6 +67,13 @@ public class FeedController {
                 now, now);
         feeds.create(feed);
         return ResponseEntity.ok(feed);
+    }
+
+    @PostMapping("/deduplicate")
+    @Operation(summary = "Remove duplicate-URL feeds, keeping the oldest per URL")
+    public ResponseEntity<Map<String, Object>> deduplicate() {
+        int removed = feeds.deduplicateByUrl();
+        return ResponseEntity.ok(Map.of("removed", removed));
     }
 
     @GetMapping
