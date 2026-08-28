@@ -14,11 +14,14 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * Runtime-mutable version of {@link CrawlerProperties#allowedDomains()}. The
- * configured allow-list is loaded at startup; anything a user explicitly
- * submits via UI / REST is auto-added ("trust the human — they asked for it").
- * The immutable properties list stays as the seed-list allowlist for
- * autostart; ScopeService supersedes it for all runtime admission checks.
+ * Runtime-mutable scope check for URLs. Anything a user explicitly submits
+ * via UI / REST joins the trust store — the previous version held that set
+ * in a process-wide {@code HashSet<String>} that grew unbounded on wide
+ * crawls.
+ *
+ * <p>Delegates persistence + hot cache to a {@link TrustedHostStore}
+ * (default {@link CassandraTrustedHostStore}). Swap in Redis / any KV
+ * later by adding another store implementation.
  */
 @Service
 public class ScopeService {
@@ -26,24 +29,16 @@ public class ScopeService {
 
     private final Set<Pattern> configuredAllowed;
     private final Set<Pattern> configuredExcludes;
-    /**
-     * Entries are either exact hosts ("news.example.com") or a bare
-     * registrable domain ("example.com"). A URL matches if host equals or
-     * ends with ".<entry>".
-     */
-    private final Set<String> dynamicallyAllowedDomains = new HashSet<>();
+    private final TrustedHostStore trustStore;
     private volatile boolean unrestricted = false;
 
     @Autowired
-    public ScopeService(CrawlerProperties properties) {
+    public ScopeService(CrawlerProperties properties, TrustedHostStore trustStore) {
         this.configuredAllowed = properties.getAllowedDomainPatterns();
         this.configuredExcludes = properties.getExcludePatternList();
+        this.trustStore = trustStore;
     }
 
-    /**
-     * True if the URL's host is in-scope. If no allow-list is configured AND
-     * no dynamic hosts have been added, everything passes (opt-in scope).
-     */
     public synchronized boolean allows(String url) {
         if (unrestricted) {
             return configuredExcludes.stream().noneMatch(p -> p.matcher(url).find());
@@ -59,36 +54,24 @@ public class ScopeService {
         if (configuredExcludes.stream().anyMatch(p -> p.matcher(url).find())) {
             return false;
         }
-        if (configuredAllowed.isEmpty() && dynamicallyAllowedDomains.isEmpty()) {
-            return true;
-        }
         if (configuredAllowed.stream().anyMatch(p -> p.matcher(hostLower).find())) return true;
-        for (String entry : dynamicallyAllowedDomains) {
-            if (hostLower.equals(entry) || hostLower.endsWith("." + entry)) return true;
-        }
-        return false;
+
+        // HOST-mode entries are keyed by exact host; DOMAIN-mode entries are
+        // keyed by registrable domain. Check both.
+        if (trustStore.contains(hostLower)) return true;
+        String registrable = registrableDomain(hostLower);
+        return !registrable.equals(hostLower) && trustStore.contains(registrable);
     }
 
     /**
      * Register a URL that a user explicitly asked us to crawl — its host
-     * joins the runtime allow-list. Uses HOST mode (only exact host allowed).
+     * joins the trust store. Uses HOST mode (only exact host allowed).
      */
     public void trustSubmission(String url) {
         trustSubmission(url, Mode.HOST);
     }
 
-    /** Scope-expansion modes for a user submission. */
-    public enum Mode {
-        /** Only exact host (news.example.com). */
-        HOST,
-        /**
-         * Registrable domain (news.example.com → *.example.com — enqueued
-         * as a regex fragment).
-         */
-        DOMAIN,
-        /** Any domain — effectively unrestricted for this session. */
-        ANY
-    }
+    public enum Mode { HOST, DOMAIN, ANY }
 
     public synchronized void trustSubmission(String url, Mode mode) {
         if (mode == Mode.ANY) {
@@ -99,20 +82,14 @@ public class ScopeService {
         try {
             String host = URI.create(url).getHost();
             if (host == null) return;
-            String toAdd = mode == Mode.DOMAIN ? registrableDomain(host) : host.toLowerCase();
-            if (dynamicallyAllowedDomains.add(toAdd)) {
-                logger.info("Runtime-allow '{}' ({}) via user-submitted URL", toAdd, mode);
-            }
+            String key = mode == Mode.DOMAIN ? registrableDomain(host) : host.toLowerCase();
+            trustStore.persist(key, mode);
+            logger.info("Runtime-allow '{}' ({}) via user-submitted URL", key, mode);
         } catch (Exception e) {
             // ignore — malformed, will be rejected later
         }
     }
 
-    /**
-     * Best-effort registrable-domain extraction: last two labels of the host.
-     * Not TLD-aware (won't handle co.uk correctly) — good enough for the
-     * common case; a proper implementation would use publicsuffix data.
-     */
     private String registrableDomain(String host) {
         String h = host.toLowerCase();
         String[] parts = h.split("\\.");
@@ -120,9 +97,12 @@ public class ScopeService {
         return parts[parts.length - 2] + "." + parts[parts.length - 1];
     }
 
-    public synchronized Set<String> allowedDomainsSnapshot() {
-        Set<String> config = configuredAllowed.stream().map(Pattern::pattern).collect(Collectors.toSet());
-        Set<String> all = Stream.concat(config.stream(), dynamicallyAllowedDomains.stream())
+    public Set<String> allowedDomainsSnapshot() {
+        Set<String> config = configuredAllowed.stream()
+                .map(Pattern::pattern).collect(Collectors.toSet());
+        Set<String> dynamic = new HashSet<>();
+        trustStore.allTrustedKeys().forEach(dynamic::add);
+        Set<String> all = Stream.concat(config.stream(), dynamic.stream())
                 .collect(Collectors.toCollection(HashSet::new));
         if (unrestricted) all.add("<ANY>");
         return all;

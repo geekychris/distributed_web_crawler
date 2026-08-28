@@ -33,6 +33,16 @@ CREATE TABLE IF NOT EXISTS crawler.crawl_state (
     crawl_delay int
 );
 
+-- Runtime allow-list of trusted hosts / registrable domains for the
+-- ScopeService. Replaces the process-wide HashSet so scope survives
+-- restarts AND stops eating RAM on wide crawls.
+CREATE TABLE IF NOT EXISTS crawler.trusted_hosts (
+    host      text PRIMARY KEY,   -- for HOST mode: exact hostname
+                                  -- for DOMAIN mode: registrable domain (e.g. "amiga.com")
+    mode      text,               -- "HOST" | "DOMAIN"
+    added_at  timestamp
+);
+
 CREATE TABLE IF NOT EXISTS crawler.crawl_jobs (
     job_id uuid PRIMARY KEY,
     name text,

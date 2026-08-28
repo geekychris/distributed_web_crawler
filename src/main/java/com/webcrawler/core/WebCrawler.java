@@ -9,6 +9,8 @@ import com.webcrawler.service.ActivityFeed;
 import com.webcrawler.service.CrawlJobService;
 import com.webcrawler.service.ScopeService;
 import com.webcrawler.storage.StorageService;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import crawlercommons.filters.basic.BasicURLNormalizer;
 import crawlercommons.robots.SimpleRobotRules;
 import crawlercommons.robots.SimpleRobotRulesParser;
@@ -51,12 +53,37 @@ public class WebCrawler {
     private final ScheduledExecutorService retryScheduler;
     private final ExecutorService workerExecutor;
 
-    /** Next allowed fetch time per host — atomically reserved before sleeping. */
-    private final Map<String, Instant> nextFetchAt = new ConcurrentHashMap<>();
-    /** Per-host lock so politeness reservation is serialized within one process. */
-    private final Map<String, Object> hostLocks = new ConcurrentHashMap<>();
-    private final Map<String, SimpleRobotRules> robotsCache = new ConcurrentHashMap<>();
-    private final Set<String> sitemapsSeen = ConcurrentHashMap.newKeySet();
+    // Four caches that used to be unbounded ConcurrentHashMaps — with a
+    // Wikipedia-fanout crawl the host-keyed maps grew without bound and
+    // dominated the JVM heap. Caffeine caps entry count and expires by
+    // access time so RAM stays flat regardless of crawl breadth.
+    //
+    // Trade-off on eviction: an evicted nextFetchAt/hostLock means the
+    // next request treats the host as new and skips the delay once —
+    // one impolite fetch per rare eviction, not a broken crawler. An
+    // evicted robots entry causes a re-fetch (robots.txt legitimately
+    // ages anyway). An evicted sitemap URL causes a duplicate sitemap
+    // parse (harmless idempotent work).
+    //
+    // Follow-up options (see design note): FP64 + Trove primitive
+    // hash-set for sitemapsSeen, Bloom filter for known content hashes,
+    // Redis as an L2 shared across replicas.
+    private final Cache<String, Instant> nextFetchAt = Caffeine.newBuilder()
+            .maximumSize(50_000)
+            .expireAfterAccess(Duration.ofHours(1))
+            .build();
+    private final Cache<String, Object> hostLocks = Caffeine.newBuilder()
+            .maximumSize(50_000)
+            .expireAfterAccess(Duration.ofHours(1))
+            .build();
+    private final Cache<String, SimpleRobotRules> robotsCache = Caffeine.newBuilder()
+            .maximumSize(10_000)
+            .expireAfterWrite(Duration.ofHours(24))
+            .build();
+    private final Cache<String, Boolean> sitemapsSeen = Caffeine.newBuilder()
+            .maximumSize(100_000)
+            .expireAfterWrite(Duration.ofDays(7))
+            .build();
 
     private final BasicURLNormalizer urlNormalizer = new BasicURLNormalizer();
     private final SimpleRobotRulesParser robotsParser = new SimpleRobotRulesParser();
@@ -270,11 +297,11 @@ public class WebCrawler {
      * fire less than crawlDelay apart within one process.
      */
     private void reserveAndAwaitPoliteness(String domain) throws InterruptedException {
-        Object lock = hostLocks.computeIfAbsent(domain, k -> new Object());
+        Object lock = hostLocks.get(domain, k -> new Object());
         Instant fireAt;
         synchronized (lock) {
             Instant now = Instant.now();
-            Instant scheduled = nextFetchAt.getOrDefault(domain, now);
+            Instant scheduled = nextFetchAt.get(domain, k -> now);
             fireAt = scheduled.isAfter(now) ? scheduled : now;
             nextFetchAt.put(domain, fireAt.plus(config.crawlDelay()));
         }
@@ -456,7 +483,7 @@ public class WebCrawler {
      */
     private SimpleRobotRules getRobotsRules(URL url, java.util.UUID jobId) {
         String key = url.getProtocol() + "://" + url.getHost();
-        return robotsCache.computeIfAbsent(key, k -> fetchRobots(url, jobId));
+        return robotsCache.get(key, k -> fetchRobots(url, jobId));
     }
 
     private SimpleRobotRules fetchRobots(URL url, java.util.UUID jobId) {
@@ -483,7 +510,10 @@ public class WebCrawler {
 
     private void enqueueSitemap(String sitemapUrl, URL originatingPage, java.util.UUID jobId) {
         String normalized = normalize(sitemapUrl);
-        if (normalized == null || !sitemapsSeen.add(normalized)) return;
+        if (normalized == null) return;
+        // Caffeine has no putIfAbsent-returns-boolean; simulate with getIfPresent.
+        if (sitemapsSeen.getIfPresent(normalized) != null) return;
+        sitemapsSeen.put(normalized, Boolean.TRUE);
         // Fire-and-forget on the fetch executor — sitemap parsing is
         // best-effort, we never block a crawl on it.
         CompletableFuture.runAsync(() -> {

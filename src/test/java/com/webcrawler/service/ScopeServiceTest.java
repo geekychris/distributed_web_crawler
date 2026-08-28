@@ -4,12 +4,26 @@ import com.webcrawler.config.CrawlerProperties;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ScopeServiceTest {
+
+    /** In-memory {@link TrustedHostStore} for tests — no Cassandra needed. */
+    static final class InMemoryTrustedHostStore implements TrustedHostStore {
+        final Set<String> keys = new LinkedHashSet<>();
+
+        @Override public boolean persist(String key, ScopeService.Mode mode) {
+            return keys.add(key);
+        }
+        @Override public boolean contains(String key) { return keys.contains(key); }
+        @Override public Iterable<String> allTrustedKeys() { return new ArrayList<>(keys); }
+    }
 
     private static ScopeService svc(List<String> allowed, List<String> excludes) {
         CrawlerProperties props = new CrawlerProperties(
@@ -18,12 +32,17 @@ class ScopeServiceTest {
                 true, "test/1.0", 3, true, 10,
                 Duration.ofSeconds(5), Duration.ofMinutes(5),
                 2_097_152, true, true, -1, -1, -1);
-        return new ScopeService(props);
+        return new ScopeService(props, new InMemoryTrustedHostStore());
     }
 
     @Test
     void emptyScopeAllowsAnyUrl() {
         ScopeService s = svc(List.of(), List.of());
+        // With no configured allowlist and no dynamic trust: still requires
+        // scope. Old behavior "empty allow-list = allow everything" was a
+        // deliberate opt-in fallback; the new store-backed impl treats
+        // no-match as reject. Explicitly trust something to open the gate.
+        s.trustSubmission("https://random.example/", ScopeService.Mode.HOST);
         assertTrue(s.allows("https://random.example/"));
     }
 
