@@ -96,35 +96,7 @@ spec:
       resources:
         requests:
           storage: 20Gi
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: cassandra-schema
-  namespace: crawler
-data:
-  schema.cql: |
-    CREATE KEYSPACE IF NOT EXISTS crawler
-        WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 2};
-
-    USE crawler;
-
-    CREATE TABLE IF NOT EXISTS pages (
-        url text PRIMARY KEY,
-        content_hash text,
-        fetch_time timestamp,
-        http_status int,
-        headers map<text, text>,
-        links set<text>,
-        metadata map<text, text>,
-        s3_key text
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_content_hash ON pages(content_hash);
-
-    CREATE TABLE IF NOT EXISTS crawl_state (
-        domain text PRIMARY KEY,
-        last_crawl_time timestamp,
-        robots_txt text,
-        crawl_delay int
-    );
+# Schema is applied automatically by the crawler app on startup
+# (see CrawlerConfiguration.applySchema — canonical source is
+# src/main/resources/schema.cql). An operator-facing ConfigMap used to
+# live here; it drifted from the real schema and has been removed.

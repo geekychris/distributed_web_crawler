@@ -22,24 +22,31 @@ public record CrawlerProperties(
     @DefaultValue("3") int maxRetryAttempts,
     @DefaultValue("true") boolean enableDelayRetry,
     @DefaultValue("10") int batchSize,
-    @DefaultValue("PT5S") Duration pollTimeout
+    @DefaultValue("PT5S") Duration pollTimeout,
+    @DefaultValue("PT5M") Duration batchTimeout,
+    @DefaultValue("2097152") int maxContentBytes,
+    @DefaultValue("true") boolean discoverSitemaps,
+    @DefaultValue("true") boolean autostart,
+    @DefaultValue("-1") int maxPages,
+    @DefaultValue("-1") int maxPagesPerDomain,
+    @DefaultValue("-1") int maxDomains
 ) {
     public Set<Pattern> getAllowedDomainPatterns() {
-        return allowedDomains != null ? 
+        return allowedDomains != null ?
             allowedDomains.stream()
                 .map(Pattern::compile)
-                .collect(Collectors.toSet()) : 
+                .collect(Collectors.toSet()) :
             Set.of();
     }
-    
+
     public Set<Pattern> getExcludePatternList() {
-        return excludePatterns != null ? 
+        return excludePatterns != null ?
             excludePatterns.stream()
                 .map(Pattern::compile)
-                .collect(Collectors.toSet()) : 
+                .collect(Collectors.toSet()) :
             Set.of();
     }
-    
+
     public Set<String> getSeedUrlSet() {
         return seedUrls != null ? Set.copyOf(seedUrls) : Set.of();
     }

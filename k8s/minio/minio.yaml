@@ -71,10 +71,45 @@ spec:
           name: api
         - containerPort: 9001
           name: console
+        readinessProbe:
+          httpGet:
+            path: /minio/health/ready
+            port: 9000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /minio/health/live
+            port: 9000
+          initialDelaySeconds: 30
+          periodSeconds: 30
         volumeMounts:
         - name: data
           mountPath: /data
-      initContainers:
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: local-standard
+      resources:
+        requests:
+          storage: 50Gi
+---
+# Bucket creation is handled by the crawler app itself (BucketBootstrap).
+# This Job is a belt-and-braces fallback for operators who want to prime the
+# bucket independently — e.g. before running the app for the first time.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-create-bucket
+  namespace: crawler
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
       - name: create-bucket
         image: minio/mc
         env:
@@ -92,17 +127,12 @@ spec:
         - /bin/sh
         - -c
         - |
-          mc config host add myminio http://minio:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD;
-          mc mb myminio/crawler-bucket || true;
-  volumeClaimTemplates:
-  - metadata:
-      name: data
-    spec:
-      accessModes: [ "ReadWriteOnce" ]
-      storageClassName: local-standard
-      resources:
-        requests:
-          storage: 50Gi
+          set -eu
+          until mc alias set myminio http://minio.crawler.svc.cluster.local:9000 \
+                "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do
+            echo "waiting for minio…"; sleep 3
+          done
+          mc mb --ignore-existing myminio/crawler-bucket
 ---
 apiVersion: v1
 kind: Secret

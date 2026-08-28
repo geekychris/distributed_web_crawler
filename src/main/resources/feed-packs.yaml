@@ -1,0 +1,53 @@
+# Curated feed packs. Loaded into Cassandra by FeedPackService on
+# startup — the crawler.feed_packs and crawler.feed_pack_members tables
+# are the source of truth at runtime, this YAML is the seed.
+#
+# Adding a pack:
+#   - id must be a short lowercase slug (used as REST path segment)
+#   - default_poll_interval_seconds is a per-pack recommendation; the
+#     user can override at subscribe time
+packs:
+
+  - id: tech
+    name: "Tech"
+    description: "Popular technology news and analysis"
+    default_poll_interval_seconds: 900
+    feeds:
+      - url: "https://feeds.arstechnica.com/arstechnica/index"
+        title: "Ars Technica"
+      - url: "https://news.ycombinator.com/rss"
+        title: "Hacker News"
+      - url: "https://www.theverge.com/rss/index.xml"
+        title: "The Verge"
+
+  - id: news
+    name: "News"
+    description: "Major English-language news outlets"
+    default_poll_interval_seconds: 600
+    feeds:
+      - url: "https://feeds.bbci.co.uk/news/rss.xml"
+        title: "BBC News"
+      - url: "https://www.theguardian.com/international/rss"
+        title: "The Guardian"
+      - url: "https://feeds.npr.org/1001/rss.xml"
+        title: "NPR Top Stories"
+
+  - id: retro
+    name: "Retro Computing"
+    description: "Retro gaming and vintage computing"
+    default_poll_interval_seconds: 1800
+    feeds:
+      - url: "https://www.retrogamer.net/feed/"
+        title: "Retro Gamer"
+      - url: "https://amiga.com/feed/"
+        title: "amiga.com"
+
+  - id: lifestyle
+    name: "Lifestyle"
+    description: "Food, travel, culture"
+    default_poll_interval_seconds: 1800
+    feeds:
+      - url: "https://www.theguardian.com/lifeandstyle/rss"
+        title: "Guardian Lifestyle"
+      - url: "https://feeds.a.dj.com/rss/RSSLifestyle.xml"
+        title: "WSJ Lifestyle"

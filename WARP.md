@@ -205,11 +205,26 @@ AWS_SECRET_ACCESS_KEY=minioadmin
 
 ## Testing Strategy
 
-The project uses JUnit Jupiter for testing. Current test coverage is minimal (only a placeholder `AppTest`). When adding tests:
-- Use JUnit 5 (Jupiter) annotations 
-- Mock external services (Kafka, Cassandra, S3) using Mockito
-- Test individual components in isolation
-- Consider integration tests for the full crawling pipeline
+### Unit tests (`mvn test`)
+Pure-logic tests, no infra required. Cover:
+- `ScopeServiceTest` — HOST / DOMAIN / ANY modes, config allow/exclude interaction
+- `ActivityFeedTest` — ring buffer capacity, ordering, limit
+- `HybridStorageServiceTest` — case-insensitive header lookup
+- `CrawlJobTest`, `CrawlRequestTest`, `CrawlDecisionTest`, `CrawlerPropertiesTest`
+
+Run all: `mvn -B test`. Run one class: `mvn -B test -Dtest=ScopeServiceTest`.
+
+### System test (`scripts/system-test.sh`)
+Exercises the running docker-compose stack via REST. Verifies:
+- `/actuator/health/readiness` + `/liveness` return 200
+- `activity` clamps negative limit
+- Missing job returns 404 on pause/resume/cancel/progress/get
+- `POST /api/jobs` with `maxDepth` round-trips
+- End-to-end: submit a seed with a unique fingerprint, watch it hit the activity feed as CRAWLED
+- CloudEvents land on `crawler.pages.v1`
+
+Run: `./scripts/system-test.sh` (from repo root; expects `docker compose up` first).
+Env overrides: `HOST=http://localhost:28080 KAFKA_CTR=distributed_web_crawler-kafka-1 KAFKA_BOOT=localhost:22092`.
 
 ## Data Models
 

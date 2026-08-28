@@ -13,6 +13,17 @@ management:
   endpoint:
     health:
       show-details: always
+      probes:
+        enabled: true
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+    # Optional dependencies — the code degrades gracefully when they're
+    # down, so don't let them fail the crawler's readiness probe.
+    redis:
+      enabled: false
 
 # OpenAPI/Swagger configuration
 springdoc:
@@ -53,11 +64,20 @@ crawler:
   enable-delay-retry: true
   batch-size: 10
   poll-timeout: PT5S
+  batch-timeout: PT5M
+  max-content-bytes: 2097152
+  discover-sitemaps: true
+  autostart: true
+  # Budgets: -1 = unlimited. Use crawl jobs (POST /api/jobs) for finer control.
+  max-pages: -1
+  max-pages-per-domain: -1
+  max-domains: -1
 
 kafka:
   bootstrap-servers: localhost:9092
   group-id: crawler-group-2
   topic: crawler-urls
+  page-events-topic: crawler.pages.v1
 
 cassandra:
   contact-points: localhost:30042

@@ -5,110 +5,93 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.webcrawler.config.KafkaProperties;
 import com.webcrawler.model.CrawlRequest;
+import jakarta.annotation.PreDestroy;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import org.apache.kafka.clients.consumer.ConsumerRecords;
 
 @Component
 public class KafkaUrlQueue implements UrlQueue {
+    private static final Logger logger = LoggerFactory.getLogger(KafkaUrlQueue.class);
+
     private final KafkaProducer<String, String> producer;
-    private final KafkaConsumer<String, String> consumer;
     private final ObjectMapper objectMapper;
     private final String topicName;
     private final String groupId;
+    private final String bootstrapServers;
+    private final List<KafkaBatchConsumer> openConsumers = new ArrayList<>();
 
     @Autowired
     public KafkaUrlQueue(KafkaProperties kafkaProperties) {
         this.groupId = kafkaProperties.groupId();
         this.topicName = kafkaProperties.topic();
+        this.bootstrapServers = kafkaProperties.bootstrapServers();
         this.objectMapper = new ObjectMapper()
             .registerModule(new JavaTimeModule())
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
-        this.producer = createProducer(kafkaProperties.bootstrapServers());
-        this.consumer = createConsumer(kafkaProperties.bootstrapServers());
-        this.consumer.subscribe(Set.of(topicName));
+        this.producer = createProducer(bootstrapServers);
     }
 
     @Override
     public CompletableFuture<Void> enqueue(CrawlRequest request) {
         try {
             String json = objectMapper.writeValueAsString(request);
-            return CompletableFuture.supplyAsync(() -> 
-                producer.send(new ProducerRecord<>(topicName, request.url(), json)))
-                .thenAccept(result -> {});
+            CompletableFuture<Void> f = new CompletableFuture<>();
+            producer.send(new ProducerRecord<>(topicName, request.url(), json), (md, ex) -> {
+                if (ex != null) f.completeExceptionally(ex); else f.complete(null);
+            });
+            return f;
         } catch (Exception e) {
             return CompletableFuture.failedFuture(e);
         }
     }
 
     @Override
-    public CompletableFuture<List<CrawlRequest>> dequeue() {
-        return CompletableFuture.supplyAsync(() -> {
-            synchronized (consumer) {
-                return getCrawlRequest();
-            }
-        });
+    public synchronized BatchConsumer openBatchConsumer() {
+        KafkaConsumer<String, String> consumer = createConsumer(bootstrapServers);
+        consumer.subscribe(Set.of(topicName));
+        KafkaBatchConsumer bc = new KafkaBatchConsumer(consumer, objectMapper, this::forget);
+        openConsumers.add(bc);
+        return bc;
     }
 
-    private List<CrawlRequest> getCrawlRequest() {
-        List<CrawlRequest> requests = new ArrayList<>();
-        var records = consumer.poll(Duration.ofSeconds(1));
-        if (records.isEmpty()) {
-            return null;
-        }
-        var record = records.iterator().next();
-        try {
-            requests.add(objectMapper.readValue(record.value(), CrawlRequest.class));
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to deserialize CrawlRequest", e);
-        }
-        return requests;
+    private synchronized void forget(KafkaBatchConsumer bc) {
+        openConsumers.remove(bc);
     }
-    
+
     @Override
-    public CompletableFuture<List<CrawlRequest>> pollBatch(long timeoutMs) {
-        return CompletableFuture.supplyAsync(() -> {
-            synchronized (consumer) {
-                ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(timeoutMs));
-                if (records.isEmpty()) {
-                    return List.of(); // Return empty list instead of null for batch processing
-                }
-                
-                List<CrawlRequest> requests = new ArrayList<>();
-                for (var record : records) {
-                    try {
-                        CrawlRequest request = objectMapper.readValue(record.value(), CrawlRequest.class);
-                        requests.add(request);
-                    } catch (Exception e) {
-                        throw new RuntimeException("Failed to deserialize CrawlRequest from: " + record.value(), e);
-                    }
-                }
-                return requests;
-            }
-        });
-    }
-    
-    @Override
-    public CompletableFuture<Void> commitBatch() {
-        return CompletableFuture.runAsync(() -> {
-            synchronized (consumer) {
-                consumer.commitSync();
-            }
-        });
+    @PreDestroy
+    public synchronized void close() {
+        // Signal each consumer to break out of poll() from OUR thread rather
+        // than closing the consumer here — KafkaConsumer.close() is not safe
+        // to call from a thread other than the poll thread. The crawl-loop
+        // catches WakeupException and closes its consumer via
+        // try-with-resources.
+        for (KafkaBatchConsumer bc : new ArrayList<>(openConsumers)) {
+            try { bc.wakeup(); } catch (Exception e) { logger.warn("Consumer wakeup failed", e); }
+        }
+        try { producer.close(Duration.ofSeconds(10)); } catch (Exception e) { logger.warn("Producer close failed", e); }
     }
 
     private KafkaProducer<String, String> createProducer(String bootstrapServers) {
@@ -117,6 +100,7 @@ public class KafkaUrlQueue implements UrlQueue {
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         props.put(ProducerConfig.ACKS_CONFIG, "all");
+        props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
         return new KafkaProducer<>(props);
     }
 
@@ -132,11 +116,59 @@ public class KafkaUrlQueue implements UrlQueue {
         return new KafkaConsumer<>(props);
     }
 
-    @Override
-    public void close() {
-        producer.close();
-        synchronized (consumer) {
-            consumer.close();
+    /**
+     * A single-threaded batch consumer. Owned by exactly one worker thread —
+     * poll() and commit() must be called from that same thread because
+     * KafkaConsumer tracks the caller's thread id and throws
+     * ConcurrentModificationException on cross-thread access.
+     */
+    private static final class KafkaBatchConsumer implements BatchConsumer {
+        private final KafkaConsumer<String, String> consumer;
+        private final ObjectMapper objectMapper;
+        private final java.util.function.Consumer<KafkaBatchConsumer> onClose;
+
+        KafkaBatchConsumer(KafkaConsumer<String, String> consumer,
+                           ObjectMapper objectMapper,
+                           java.util.function.Consumer<KafkaBatchConsumer> onClose) {
+            this.consumer = consumer;
+            this.objectMapper = objectMapper;
+            this.onClose = onClose;
+        }
+
+        @Override
+        public Batch poll(Duration timeout) {
+            ConsumerRecords<String, String> records = consumer.poll(timeout);
+            if (records.isEmpty()) {
+                return new Batch(List.of(), () -> {}, false);
+            }
+            List<CrawlRequest> requests = new ArrayList<>(records.count());
+            Map<TopicPartition, OffsetAndMetadata> offsets = new HashMap<>();
+            for (ConsumerRecord<String, String> record : records) {
+                try {
+                    requests.add(objectMapper.readValue(record.value(), CrawlRequest.class));
+                } catch (Exception e) {
+                    logger.warn("Skipping unparseable CrawlRequest at {}:{} offset {}: {}",
+                            record.topic(), record.partition(), record.offset(), e.getMessage());
+                }
+                TopicPartition tp = new TopicPartition(record.topic(), record.partition());
+                offsets.merge(tp,
+                        new OffsetAndMetadata(record.offset() + 1),
+                        (a, b) -> a.offset() >= b.offset() ? a : b);
+            }
+            return new Batch(requests, () -> consumer.commitSync(offsets), true);
+        }
+
+        void wakeup() {
+            consumer.wakeup();
+        }
+
+        @Override
+        public void close() {
+            try {
+                consumer.close(Duration.ofSeconds(10));
+            } finally {
+                onClose.accept(this);
+            }
         }
     }
 }
