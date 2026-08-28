@@ -100,6 +100,8 @@ CREATE TABLE IF NOT EXISTS crawler.feeds (
 );
 
 ALTER TABLE crawler.feeds ADD IF NOT EXISTS consecutive_empty int;
+ALTER TABLE crawler.feeds ADD IF NOT EXISTS last_error_message text;
+ALTER TABLE crawler.feeds ADD IF NOT EXISTS last_error_at timestamp;
 
 CREATE TABLE IF NOT EXISTS crawler.feed_items (
     feed_id            uuid,

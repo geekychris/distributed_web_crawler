@@ -44,10 +44,12 @@ public class FeedRepository {
                 "INSERT INTO feeds (feed_id, url, title, pack, poll_interval_seconds, adaptive, "
               + "follow_articles, store_full_content, status, etag, last_modified, "
               + "last_polled_at, next_poll_at, consecutive_errors, consecutive_empty, "
-              + "created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+              + "last_error_message, last_error_at, created_at, updated_at) "
+              + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
         this.updateFeedPoll = session.prepare(
                 "UPDATE feeds SET last_polled_at = ?, next_poll_at = ?, etag = ?, "
               + "last_modified = ?, consecutive_errors = ?, consecutive_empty = ?, "
+              + "last_error_message = ?, last_error_at = ?, "
               + "status = ?, updated_at = ? WHERE feed_id = ?");
         this.updateFeedStatus = session.prepare(
                 "UPDATE feeds SET status = ?, updated_at = ? WHERE feed_id = ?");
@@ -77,6 +79,7 @@ public class FeedRepository {
                 feed.etag(), feed.lastModified(),
                 feed.lastPolledAt(), feed.nextPollAt(),
                 feed.consecutiveErrors(), feed.consecutiveEmpty(),
+                feed.lastErrorMessage(), feed.lastErrorAt(),
                 feed.createdAt(), feed.updatedAt()));
         return feed;
     }
@@ -96,6 +99,7 @@ public class FeedRepository {
         session.execute(updateFeedPoll.bind(
                 feed.lastPolledAt(), feed.nextPollAt(), feed.etag(), feed.lastModified(),
                 feed.consecutiveErrors(), feed.consecutiveEmpty(),
+                feed.lastErrorMessage(), feed.lastErrorAt(),
                 feed.status().name(), Instant.now(),
                 feed.feedId()));
     }
@@ -229,8 +233,19 @@ public class FeedRepository {
                 r.getInstant("next_poll_at"),
                 r.isNull("consecutive_errors") ? 0 : r.getInt("consecutive_errors"),
                 r.isNull("consecutive_empty") ? 0 : r.getInt("consecutive_empty"),
+                safeGetString(r, "last_error_message"),
+                safeGetInstant(r, "last_error_at"),
                 r.getInstant("created_at"),
                 r.getInstant("updated_at"));
+    }
+
+    /** Defensive read for columns that may not exist on rows written before
+     *  the ALTER TABLE ADD IF NOT EXISTS ran. */
+    private static String safeGetString(Row r, String col) {
+        try { return r.getString(col); } catch (Exception e) { return null; }
+    }
+    private static Instant safeGetInstant(Row r, String col) {
+        try { return r.getInstant(col); } catch (Exception e) { return null; }
     }
 
     private FeedItem rowToItem(Row r) {

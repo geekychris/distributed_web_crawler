@@ -511,6 +511,7 @@ public class MainView extends VerticalLayout {
                 .setHeader("Streak").setWidth("110px");
         grid.addColumn(new ComponentRenderer<>(feed -> {
             HorizontalLayout btns = new HorizontalLayout();
+            Button details = new Button("Details", e -> showFeedDetailsDialog(feed));
             Button viewItems = new Button("Items", e -> showFeedItemsDialog(feed));
             Button pollNow = new Button("Poll", e -> {
                 try { feedPoller.poll(feed); refreshFeedsGrid(grid);
@@ -528,12 +529,18 @@ public class MainView extends VerticalLayout {
                 showNotification("Deleted " + feed.url(), false);
             });
             deleteBtn.addThemeVariants(ButtonVariant.LUMO_ERROR, ButtonVariant.LUMO_SMALL);
+            details.addThemeVariants(ButtonVariant.LUMO_TERTIARY, ButtonVariant.LUMO_SMALL);
+            // Highlight when there's an actual error to look at.
+            if (feed.status() == Feed.Status.ERROR || feed.consecutiveErrors() > 0
+                    || feed.lastErrorMessage() != null) {
+                details.addThemeVariants(ButtonVariant.LUMO_ERROR);
+            }
             viewItems.addThemeVariants(ButtonVariant.LUMO_TERTIARY, ButtonVariant.LUMO_SMALL);
             pollNow.addThemeVariants(ButtonVariant.LUMO_SMALL);
             pauseBtn.addThemeVariants(ButtonVariant.LUMO_SMALL);
-            btns.add(viewItems, pollNow, pauseBtn, deleteBtn);
+            btns.add(details, viewItems, pollNow, pauseBtn, deleteBtn);
             return btns;
-        })).setHeader("Actions").setWidth("320px");
+        })).setHeader("Actions").setWidth("400px");
         grid.setSizeFull();
 
         refreshFeedsGrid(grid);
@@ -591,6 +598,120 @@ public class MainView extends VerticalLayout {
     private void refreshFeedsGrid(Grid<Feed> grid) {
         try { grid.setItems(feedRepo.listAll()); }
         catch (Exception ex) { showNotification("Load feeds failed: " + ex.getMessage(), true); }
+    }
+
+    private void showFeedDetailsDialog(Feed feed) {
+        Dialog dialog = new Dialog();
+        dialog.setWidth("700px");
+        dialog.setDraggable(true);
+        dialog.setResizable(true);
+
+        VerticalLayout content = new VerticalLayout();
+        content.setPadding(false);
+        content.setSpacing(true);
+
+        // Header + primary metadata
+        H3 title = new H3(feed.title() == null || feed.title().isBlank() ? feed.url() : feed.title());
+        title.getStyle().set("margin", "0");
+        content.add(title);
+        Paragraph url = new Paragraph(feed.url());
+        url.getStyle().set("color", "var(--lumo-secondary-text-color)").set("margin", "0");
+        content.add(url);
+
+        // Status badge + streak summary
+        String statusLine;
+        boolean hasError = feed.status() == Feed.Status.ERROR
+                || feed.consecutiveErrors() > 0
+                || feed.lastErrorMessage() != null;
+        String icon = switch (feed.status()) {
+            case ACTIVE -> hasError ? "⚠️ ACTIVE (with recent errors)" : "🟢 ACTIVE";
+            case PAUSED -> "⏸  PAUSED";
+            case ERROR -> "🔴 ERROR (5+ consecutive failures — auto-quarantined)";
+        };
+        Span statusSpan = new Span(icon);
+        statusSpan.getStyle().set("font-weight", "600");
+        content.add(statusSpan);
+
+        // Diagnostics grid — two-column key/value.
+        Div diag = new Div();
+        diag.getStyle().set("display", "grid")
+                .set("grid-template-columns", "160px 1fr")
+                .set("gap", "0.4rem 1rem")
+                .set("font-size", "13px");
+        addDiagRow(diag, "Pack", feed.pack() == null ? "—" : feed.pack());
+        addDiagRow(diag, "Base interval", feed.pollIntervalSeconds() + "s"
+                + (feed.adaptive() ? " (adaptive)" : ""));
+        addDiagRow(diag, "Effective interval",
+                feed.effectiveIntervalSeconds() + "s (backoff applied to base)");
+        addDiagRow(diag, "Follow articles", feed.followArticles() ? "yes" : "no");
+        addDiagRow(diag, "Last polled", fmtInstant(feed.lastPolledAt()));
+        addDiagRow(diag, "Next poll",   fmtInstant(feed.nextPollAt()));
+        addDiagRow(diag, "Consecutive errors", String.valueOf(feed.consecutiveErrors()));
+        addDiagRow(diag, "Consecutive empty",  String.valueOf(feed.consecutiveEmpty()));
+        addDiagRow(diag, "ETag",          feed.etag() == null ? "—" : feed.etag());
+        addDiagRow(diag, "Last-Modified", feed.lastModified() == null ? "—" : feed.lastModified());
+        content.add(diag);
+
+        // Last error block — the main reason a user opens this dialog.
+        if (feed.lastErrorMessage() != null) {
+            content.add(new Hr());
+            H3 errHdr = new H3("Last error");
+            errHdr.getStyle().set("margin", "0").set("color", "var(--lumo-error-text-color)");
+            content.add(errHdr);
+            Paragraph when = new Paragraph("at " + fmtInstant(feed.lastErrorAt()));
+            when.getStyle().set("color", "var(--lumo-secondary-text-color)").set("margin", "0");
+            content.add(when);
+            Div errBox = new Div();
+            errBox.setText(feed.lastErrorMessage());
+            errBox.getStyle()
+                    .set("border", "1px solid var(--lumo-error-color-50pct)")
+                    .set("background", "var(--lumo-error-color-10pct)")
+                    .set("padding", "0.75rem")
+                    .set("font-family", "monospace")
+                    .set("font-size", "12px")
+                    .set("white-space", "pre-wrap")
+                    .set("word-break", "break-word")
+                    .set("max-height", "260px")
+                    .set("overflow", "auto");
+            content.add(errBox);
+        } else {
+            content.add(new Hr());
+            Paragraph none = new Paragraph("No errors recorded.");
+            none.getStyle().set("color", "var(--lumo-secondary-text-color)");
+            content.add(none);
+        }
+
+        HorizontalLayout footer = new HorizontalLayout();
+        Button pollNow = new Button("Poll now", new Icon(VaadinIcon.REFRESH), e -> {
+            try {
+                feedPoller.poll(feed);
+                showNotification("Polled " + feed.url() + " — reopen this dialog for fresh status", false);
+                dialog.close();
+            } catch (Exception ex) {
+                showNotification("Poll failed: " + ex.getMessage(), true);
+            }
+        });
+        pollNow.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+        Button close = new Button("Close", e -> dialog.close());
+        footer.add(pollNow, close);
+        content.add(footer);
+
+        dialog.add(content);
+        dialog.open();
+    }
+
+    private static void addDiagRow(Div grid, String label, String value) {
+        Span k = new Span(label);
+        k.getStyle().set("color", "var(--lumo-secondary-text-color)");
+        Span v = new Span(value == null ? "—" : value);
+        v.getStyle().set("font-family", "monospace");
+        grid.add(k, v);
+    }
+
+    private static String fmtInstant(Instant i) {
+        if (i == null) return "never";
+        return DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                .format(i.atZone(ZoneId.systemDefault()));
     }
 
     private void showFeedItemsDialog(Feed feed) {

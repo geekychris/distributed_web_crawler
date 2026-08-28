@@ -131,31 +131,44 @@ public class FeedPoller {
             String newEtag = resp.headers().firstValue("ETag").orElse(etag);
             String newLastModified = resp.headers().firstValue("Last-Modified").orElse(lastModified);
 
+            Feed updated;
             if (status == 304) {
                 logger.debug("Feed {} not modified (304)", feed.url());
                 errors = 0;
                 emptyPolls = emptyPolls + 1;
+                updated = feed.withNextPoll(pollAt,
+                        nextPollAt(pollAt, feed, errors, emptyPolls),
+                        newEtag, newLastModified, errors, emptyPolls);
             } else if (status >= 200 && status < 300) {
                 int added = parseAndStore(feed, resp.body(), pollAt);
                 errors = 0;
                 emptyPolls = added > 0 ? 0 : emptyPolls + 1;
                 logger.info("Feed {} → {} new item(s) (status {}, empty streak {}, error streak {})",
                         feed.url(), added, status, emptyPolls, errors);
+                updated = feed.withNextPoll(pollAt,
+                        nextPollAt(pollAt, feed, errors, emptyPolls),
+                        newEtag, newLastModified, errors, emptyPolls);
             } else {
                 errors++;
-                logger.warn("Feed {} returned HTTP {} (errors={})", feed.url(), status, errors);
+                String errBody = new String(resp.body(), StandardCharsets.UTF_8);
+                if (errBody.length() > 500) errBody = errBody.substring(0, 500) + "…";
+                String errMsg = "HTTP " + status
+                        + (errBody.isBlank() ? "" : " — " + errBody.replaceAll("\\s+", " ").trim());
+                logger.warn("Feed {} returned HTTP {} (errors={}): {}",
+                        feed.url(), status, errors, errMsg);
+                updated = feed.withPollError(pollAt,
+                        nextPollAt(pollAt, feed, errors, emptyPolls),
+                        newEtag, newLastModified, errors, emptyPolls, errMsg);
             }
-
-            Feed updated = feed.withNextPoll(pollAt,
-                    nextPollAt(pollAt, feed, errors, emptyPolls),
-                    newEtag, newLastModified, errors, emptyPolls);
             repo.updatePollResult(updated);
         } catch (Exception e) {
             errors++;
-            logger.warn("Feed poll failed for {} ({}): {}", feed.url(), errors, e.getMessage());
-            Feed updated = feed.withNextPoll(pollAt,
+            String errMsg = e.getClass().getSimpleName() + ": "
+                    + (e.getMessage() == null ? "(no message)" : e.getMessage());
+            logger.warn("Feed poll failed for {} ({}): {}", feed.url(), errors, errMsg);
+            Feed updated = feed.withPollError(pollAt,
                     nextPollAt(pollAt, feed, errors, emptyPolls),
-                    etag, lastModified, errors, emptyPolls);
+                    etag, lastModified, errors, emptyPolls, errMsg);
             repo.updatePollResult(updated);
         }
     }
