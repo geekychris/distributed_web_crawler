@@ -140,14 +140,31 @@ public class FeedPoller {
                         nextPollAt(pollAt, feed, errors, emptyPolls),
                         newEtag, newLastModified, errors, emptyPolls);
             } else if (status >= 200 && status < 300) {
-                int added = parseAndStore(feed, resp.body(), pollAt);
-                errors = 0;
-                emptyPolls = added > 0 ? 0 : emptyPolls + 1;
-                logger.info("Feed {} → {} new item(s) (status {}, empty streak {}, error streak {})",
-                        feed.url(), added, status, emptyPolls, errors);
-                updated = feed.withNextPoll(pollAt,
-                        nextPollAt(pollAt, feed, errors, emptyPolls),
-                        newEtag, newLastModified, errors, emptyPolls);
+                String respContentType = resp.headers().firstValue("Content-Type").orElse("");
+                try {
+                    int added = parseAndStore(feed, resp.body(), pollAt);
+                    errors = 0;
+                    emptyPolls = added > 0 ? 0 : emptyPolls + 1;
+                    logger.info("Feed {} → {} new item(s) (status {}, empty streak {}, error streak {})",
+                            feed.url(), added, status, emptyPolls, errors);
+                    updated = feed.withNextPoll(pollAt,
+                            nextPollAt(pollAt, feed, errors, emptyPolls),
+                            newEtag, newLastModified, errors, emptyPolls);
+                } catch (FeedParseException fpe) {
+                    // 2xx HTTP but body wasn't parseable as RSS/Atom — a
+                    // common cause is someone subscribing to an HTML page
+                    // by mistake. Surface as an error, not an empty poll,
+                    // so adaptive backoff and status flip work correctly.
+                    errors++;
+                    String errMsg = "Not a feed — parse failed (content-type: "
+                            + (respContentType.isBlank() ? "unknown" : respContentType)
+                            + "): " + fpe.getMessage();
+                    logger.warn("Feed {} parse failed (errors={}): {}",
+                            feed.url(), errors, errMsg);
+                    updated = feed.withPollError(pollAt,
+                            nextPollAt(pollAt, feed, errors, emptyPolls),
+                            newEtag, newLastModified, errors, emptyPolls, errMsg);
+                }
             } else {
                 errors++;
                 String errBody = new String(resp.body(), StandardCharsets.UTF_8);
@@ -191,8 +208,8 @@ public class FeedPoller {
             rss = new SyndFeedInput().build(new InputSource(
                     new InputStreamReader(new ByteArrayInputStream(body), StandardCharsets.UTF_8)));
         } catch (Exception e) {
-            logger.warn("Feed {} parse failed: {}", feed.url(), e.getMessage());
-            return 0;
+            throw new FeedParseException(e.getClass().getSimpleName() + ": "
+                    + (e.getMessage() == null ? "(no message)" : e.getMessage()));
         }
         int newCount = 0;
         for (SyndEntry entry : rss.getEntries()) {
@@ -323,5 +340,11 @@ public class FeedPoller {
             Thread.currentThread().interrupt();
             fetchExecutor.shutdownNow();
         }
+    }
+
+    /** Thrown by {@link #parseAndStore} when the response body isn't parseable
+     *  as RSS/Atom (typically because the URL points at HTML, not a feed). */
+    static final class FeedParseException extends RuntimeException {
+        FeedParseException(String message) { super(message); }
     }
 }
