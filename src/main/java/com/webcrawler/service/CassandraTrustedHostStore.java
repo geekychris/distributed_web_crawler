@@ -9,6 +9,7 @@ import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -32,6 +33,7 @@ import java.util.List;
  * </ul>
  */
 @Component
+@ConditionalOnProperty(name = "trusted-hosts.backend", havingValue = "cassandra", matchIfMissing = true)
 public class CassandraTrustedHostStore implements TrustedHostStore {
     private static final Logger logger = LoggerFactory.getLogger(CassandraTrustedHostStore.class);
     private static final Boolean PRESENT = Boolean.TRUE;

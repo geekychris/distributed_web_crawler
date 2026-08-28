@@ -46,6 +46,7 @@ public class CrawlerController {
     @Operation(summary = "Domains currently in-scope (configured + user-submitted)")
     public ResponseEntity<Map<String, Object>> scope() {
         return ResponseEntity.ok(Map.of(
+                "backend", scope.backendName(),
                 "allowedDomains", scope.allowedDomainsSnapshot()));
     }
 

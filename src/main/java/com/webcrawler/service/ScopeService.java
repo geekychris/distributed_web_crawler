@@ -111,4 +111,12 @@ public class ScopeService {
     public boolean isUnrestricted() {
         return unrestricted;
     }
+
+    /** @return the concrete TrustedHostStore implementation class name (for /api/crawler/scope). */
+    public String backendName() {
+        String simple = trustStore.getClass().getSimpleName();
+        return simple.endsWith("TrustedHostStore")
+                ? simple.substring(0, simple.length() - "TrustedHostStore".length()).toLowerCase()
+                : simple;
+    }
 }

@@ -143,6 +143,34 @@ fi
 section "Scope endpoint reflects runtime allowlist"
 expect_json "scope returns a list" "$HOST/api/crawler/scope" \
     "'list' if isinstance(d['allowedDomains'], list) else 'other'" list
+expect_json "scope backend is set" "$HOST/api/crawler/scope" \
+    "d.get('backend','unknown')" "$( [ "${TRUSTED_HOSTS_BACKEND:-redis}" = "cassandra" ] && echo cassandra || echo redis )"
+
+section "Redis trust persistence"
+# Register a fresh host and verify it survives a crawler restart when the
+# Redis backend is active.
+TEST_HOST="sysprobe-$(date +%s).invalid"
+curl -sS -X POST "$HOST/api/crawler/url" -H 'Content-Type: application/json' \
+    -d "{\"url\":\"https://$TEST_HOST/\"}" >/dev/null
+FOUND=$(curl -sS "$HOST/api/crawler/scope" \
+    | python3 -c "import json,sys;d=json.load(sys.stdin);print('$TEST_HOST' in d['allowedDomains'])")
+if [ "$FOUND" = "True" ]; then
+    printf '  ok  trusted host %s appears in scope snapshot\n' "$TEST_HOST"
+    pass=$((pass+1))
+else
+    printf '  FAIL trusted host missing from scope: %s\n' "$TEST_HOST"
+    failures+=("redis trust write"); fail=$((fail+1))
+fi
+# Verify Redis actually holds the key when Redis is the backend.
+if [ "${TRUSTED_HOSTS_BACKEND:-redis}" != "cassandra" ]; then
+    if docker exec distributed_web_crawler-redis-1 redis-cli sismember trusted:hosts "$TEST_HOST" | grep -q '^1$'; then
+        printf '  ok  redis SISMEMBER trusted:hosts %s = 1\n' "$TEST_HOST"
+        pass=$((pass+1))
+    else
+        printf '  FAIL redis missing the trusted key\n'
+        failures+=("redis SISMEMBER"); fail=$((fail+1))
+    fi
+fi
 
 section "Feed subscription round-trip"
 # httpbin has an /xml endpoint that returns a small Atom-shaped document.

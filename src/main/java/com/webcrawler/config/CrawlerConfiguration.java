@@ -24,7 +24,8 @@ import java.nio.charset.StandardCharsets;
     CrawlerProperties.class,
     KafkaProperties.class,
     CassandraProperties.class,
-    S3Properties.class
+    S3Properties.class,
+    TrustedHostsProperties.class
 })
 public class CrawlerConfiguration {
     private static final Logger logger = LoggerFactory.getLogger(CrawlerConfiguration.class);

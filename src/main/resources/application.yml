@@ -20,6 +20,10 @@ management:
       enabled: true
     readinessstate:
       enabled: true
+    # Optional dependencies — the code degrades gracefully when they're
+    # down, so don't let them fail the crawler's readiness probe.
+    redis:
+      enabled: false
 
 # OpenAPI/Swagger configuration
 springdoc:
