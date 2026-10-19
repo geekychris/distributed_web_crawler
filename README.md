@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="Distributed Web Crawler logo" width="180">
+</p>
+
 # Distributed Web Crawler
 
 A scalable, distributed web crawler built with Java that supports multiple crawler processes and horizontal scaling.
